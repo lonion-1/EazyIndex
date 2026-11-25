@@ -1,0 +1,64 @@
+# Kategori: Perjudian Online (Slot, Togel, Kasino, Taruhan Bola)
+
+[meta]
+enabled = true
+label = "Judi Online"
+min_pillars = 3
+min_illegal_score = 8
+veto_legal_threshold = 5
+
+[queries]
+brands = ["sbobet", "pragmaticplay", "pgsoft", "habanero", "slot88", "nexusengine", "idnpoker"]
+fillers = ["slot gacor", "rtp live", "togel online", "situs slot", "bandar togel", "judi bola", "slot deposit dana"]
+plain = [
+  "situs slot gacor hari ini gampang maxwin",
+  "bocoran rtp live slot gacor tertinggi hari ini",
+  "daftar situs judi slot online terpercaya deposit dana",
+  "bandar togel online resmi hadiah terbesar",
+]
+templates = [
+  "link login {t} terbaru",
+  "daftar {t} resmi {year}",
+  "{t} anti rungkad gampang menang",
+]
+
+[pillar_domain]
+domain_hints = [
+  "slot", "gacor", "maxwin", "togel", "toto", "casino", "kasino", "poker",
+  "domino", "qiuqiu", "sbobet", "judol", "judi", "bet", "betting", "zeus", "olympus",
+  "scatter", "jackpot", "rungkad", "pragmatic", "pgsoft", "hoki", "cuan", "jp",
+]
+high_risk_tlds = [".xyz", ".site", ".online", ".top", ".icu", ".vip", ".win", ".bet", ".casino", ".poker", ".cfd", ".sbs"]
+mirror_patterns = ["(?:slot|togel|toto|gacor|bet|vip|cuan|hoki)[a-z0-9-]*", "(?:77|88|99|138|168|303|368|777|888)\b"]
+
+[pillar_semantics]
+active_intent = [
+  "slot gacor", "gampang maxwin", "rtp live", "pola gacor", "anti rungkad",
+  "deposit pulsa tanpa potongan", "deposit dana", "deposit qris", "withdraw kilat",
+  "wd pasti dibayar", "bonus new member 100%", "daftar sekarang", "link alternatif resmi",
+  "togel 4d", "live casino", "taruhan bola",
+]
+passive_context = [
+  "satgas judi online", "ppatk", "blokir rekening judol", "bahaya judi online",
+  "kecanduan judi", "pasal 303", "ditangkap polisi", "gerebek markas",
+  "pengertian slot waktu", "slot parkir", "slot jadwal dokter",
+]
+
+[pillar_anatomy]
+url_path_patterns = [
+  "/(?:register|daftar|login|rtp|promosi|promotion|slots|casino|sports|lottery|togel)",
+]
+dom_signatures = [
+  "pragmatic play", "pg soft", "habanero", "spadegaming", "microgaming", "joker123",
+  "gates of olympus", "starlight princess", "mahjong ways", "sweet bonanza",
+  "rtp slot", "jam hoki", "pola slot", "minimal deposit", "minimal withdraw",
+  "bank bca", "bank bri", "bank bni", "bank mandiri", "dana", "ovo", "gopay", "qris",
+  "livechat 24 jam", "hubungin cs",
+]
+ad_network_markers = [
+  "wa.me/", "api.whatsapp.com", "t.me/", "livechat", "tawk.to", "lc.chat",
+]
+
+[pillar_ecosystem]
+outbound_ratio_threshold = 0.20
+suspect_outbound_hints = ["wa.me", "whatsapp.com", "t.me", "slot", "gacor", "rtp", "togel", "bet"]

@@ -1,0 +1,58 @@
+# Kategori: Situs Konten Dewasa / NSFW Ilegal
+
+[meta]
+enabled = true
+label = "Konten Dewasa / Pornografi"
+min_pillars = 3
+min_illegal_score = 8
+veto_legal_threshold = 5
+
+[queries]
+brands = ["simontok", "nekopoi", "hentaihaven", "hanime"]
+fillers = ["bokep indo", "video dewasa", "bokep viral", "hentai sub indo", "jav sub indo", "doujinshi indo"]
+plain = [
+  "nonton bokep indo viral terbaru",
+  "streaming jav sub indo gratis",
+  "nonton hentai sub indo tanpa sensor",
+  "link alternatif nekopoi terbaru {year}",
+]
+templates = [
+  "{t} terbaru {year}",
+  "streaming {t} gratis",
+  "link {t} full hd",
+]
+
+[pillar_domain]
+domain_hints = [
+  "bokep", "porn", "xxx", "jav", "hentai", "nekopoi", "simontok", "xvideos",
+  "xnxx", "pornhub", "redtube", "youporn", "brazzers", "nsfw", "18plus", "colmek", "memek",
+]
+high_risk_tlds = [".xxx", ".porn", ".adult", ".sex", ".xyz", ".site", ".top", ".icu", ".vip", ".cfd"]
+mirror_patterns = ["(?:bokep|jav|hentai|porn|xxx)[a-z0-9-]*", "(?:69|18|xxx|jav|vip)\d*$"]
+
+[pillar_semantics]
+active_intent = [
+  "bokep indo", "bokep viral", "jav sub indo", "hentai sub indo", "video dewasa",
+  "khusus dewasa 18+", "tanpa sensor", "uncensored", "abg viral", "skandal viral",
+]
+passive_context = [
+  "edukasi kesehatan reproduksi", "pencegahan pornografi", "undang-undang pornografi",
+  "perlindungan anak", "komnas perempuan", "konseling psikologi", "berita kriminal",
+]
+
+[pillar_anatomy]
+url_path_patterns = [
+  "/(?:video|jav|hentai|bokep|porn|tag|category|model|actress)/[a-z0-9-]+",
+]
+dom_signatures = [
+  "18+ only", "adult content", "uncensored", "amateur", "jav", "hentai",
+  "duration", "hd video", "free porn", "sex video", "live cam",
+]
+ad_network_markers = [
+  "exoclick", "juicyads", "trafficjunky", "chaturbate", "stripchat", "bongacams",
+  "slot gacor", "togel", "live sex",
+]
+
+[pillar_ecosystem]
+outbound_ratio_threshold = 0.25
+suspect_outbound_hints = ["porn", "xxx", "cam", "slot", "gacor", "bet", "dood", "streamtape"]
