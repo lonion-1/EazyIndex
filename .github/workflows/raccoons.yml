@@ -61,14 +61,12 @@ jobs:
                           dest = Path("config") / item.name
                   elif ext == ".py":
                       if Path("indexer").exists() and any(k in content for k in ("Scorer", "Gate", "Extractor", "class ")):
-                          # Timpa jika nama file sudah ada di indexer/, jika belum taruh di scripts/
                           cand_idx = Path("indexer") / item.name
                           dest = cand_idx if cand_idx.exists() else Path("scripts") / item.name
                       else:
                           dest = Path("scripts") / item.name
                   elif ext == ".txt":
                       if "|" in content and Path("queries").exists():
-                          # Gabungkan ke queries/manual_seeds.txt
                           target = Path("queries/manual_seeds.txt")
                           target.parent.mkdir(parents=True, exist_ok=True)
                           old = target.read_text(encoding="utf-8", errors="ignore") if target.exists() else ""
@@ -78,7 +76,6 @@ jobs:
                           moved += 1
                           continue
                       elif Path("benign_pool.txt").exists():
-                          # Gabungkan domain baru ke benign_pool.txt, pisahkan komentar, & hapus duplikat
                           target = Path("benign_pool.txt")
                           existing_raw = target.read_text(encoding="utf-8", errors="ignore").splitlines()
                           comments = [ln.rstrip() for ln in existing_raw if ln.strip().startswith("#")]
@@ -157,6 +154,89 @@ jobs:
                   return '"' + "".join(out) + '"'
               return RE_TOML_DQ_STR.sub(repl, src)
 
+          RE_GLOBAL_FLAG_TOKEN = re.compile(r"(?<!\\)(?:\\\\)*\(\?([aiLmsux]+)\)")
+          RE_LEADING_GLOBAL_FLAG = re.compile(r"^\(\?([aiLmsux]+)\)")
+          RE_ALL_TOML_STRS = re.compile(
+              r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:[^"\\\n]|\\.)*"|\'[^\'\n]*\')'
+          )
+
+          def _relocate_global_flags(pattern: str, force: bool = False) -> str:
+              if not force:
+                  try:
+                      re.compile(pattern)
+                      return pattern
+                  except re.error as err:
+                      if "global flags not at the start" not in str(err):
+                          return pattern
+
+              flags: list[str] = []
+              lead_m = RE_LEADING_GLOBAL_FLAG.match(pattern)
+              body = pattern
+              if lead_m:
+                  for ch in lead_m.group(1):
+                      if ch not in flags:
+                          flags.append(ch)
+                  body = pattern[lead_m.end():]
+
+              def _strip_flag(m: re.Match) -> str:
+                  full = m.group(0)
+                  flag_chars = m.group(1)
+                  prefix_bs = full[: full.index("(?")]
+                  for ch in flag_chars:
+                      if ch not in flags:
+                          flags.append(ch)
+                  return prefix_bs
+
+              new_body = RE_GLOBAL_FLAG_TOKEN.sub(_strip_flag, body)
+              if not flags:
+                  return pattern
+              candidate = f"(?{''.join(flags)}){new_body}"
+              if force:
+                  return candidate
+              try:
+                  re.compile(candidate)
+                  return candidate
+              except re.error:
+                  return pattern
+
+          def fix_toml_global_regex_flags(src: str) -> str:
+              def repl(m: re.Match) -> str:
+                  tok = m.group(0)
+                  if tok.startswith('"""') or tok.startswith("'''"):
+                      quote = tok[:3]
+                      inner = tok[3:-3]
+                      nl_prefix = "\n" if inner.startswith("\n") else ""
+                      core = inner[1:] if nl_prefix else inner
+                      if quote == '"""':
+                          try:
+                              decoded = tomllib.loads(f'k = """{inner}"""')["k"]
+                          except Exception:
+                              return tok
+                          fixed_dec = _relocate_global_flags(decoded)
+                          if fixed_dec == decoded:
+                              return tok
+                          fixed_core = _relocate_global_flags(core, force=True)
+                          return f"{quote}{nl_prefix}{fixed_core}{quote}"
+                      fixed_core = _relocate_global_flags(core)
+                      return f"{quote}{nl_prefix}{fixed_core}{quote}"
+                  elif tok.startswith('"'):
+                      inner = tok[1:-1]
+                      try:
+                          decoded = tomllib.loads(f'k = "{inner}"')["k"]
+                      except Exception:
+                          return tok
+                      fixed_dec = _relocate_global_flags(decoded)
+                      if fixed_dec == decoded:
+                          return tok
+                      fixed_inner = _relocate_global_flags(inner, force=True)
+                      return f'"{fixed_inner}"'
+                  else:
+                      inner = tok[1:-1]
+                      fixed_inner = _relocate_global_flags(inner)
+                      return f"'{fixed_inner}'"
+
+              return RE_ALL_TOML_STRS.sub(repl, src)
+
           for p in sorted(Path(".").rglob("*")):
               if any(part in SKIP_DIRS for part in p.parts) or not p.is_file():
                   continue
@@ -196,6 +276,7 @@ jobs:
 
               elif ext == ".toml":
                   cleaned = fix_toml_regex_strings(cleaned)
+                  cleaned = fix_toml_global_regex_flags(cleaned)
                   try:
                       tomllib.loads(cleaned)
                   except Exception as e:
