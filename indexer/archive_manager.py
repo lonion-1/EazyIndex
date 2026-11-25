@@ -21,13 +21,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
-    from radar.core import ROOT, Deadline, dns_many, log, now
+    from indexer.main import ROOT, Deadline, dns_many, log, now
 except ModuleNotFoundError:
-    from auditor.core import ROOT, Deadline, dns_many, log, now
 
 ARCHIVE_DIR = ROOT / "Archive"
-TARGET_FILE = ROOT / "EazyBlock.txt"
-ALLOWLIST_FILE = ROOT / "Allowlist.txt"
 
 DAY = 86400
 DEFAULT_DORMANT_DAYS = 7
