@@ -43,8 +43,7 @@ jobs:
           repository: lonion-1/EazyVault
           token: ${{ secrets.EAZYVAULT_TOKEN }}
           sparse-checkout: |
-            config
-            queries/proven_queries.jsonl
+            config/*.toml
           path: _vault
 
       - name: Run Front-Gate Web Indexer
