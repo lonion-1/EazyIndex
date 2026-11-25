@@ -186,9 +186,7 @@ def build_osint_probe(
     return f"{seed} {mod}"
 
 
-def choose_web_source(
-    gl: str, disabled: set[str], settings: dict
-) -> str | None:
+def choose_web_source(gl: str, disabled: set[str], settings: dict) -> str | None:
     enabled = set(settings["enabled_sources"])
     weight_map = settings["jp_weights"] if gl == "jp" else settings["weights"]
     active = [
@@ -313,9 +311,8 @@ def is_valid_osint_query(
     re_pkw = settings["re_portal_kw"]
     re_pdom = settings["re_portal_dom"]
     has_portal_signal = (
-        (re_pkw is not None and any(re_pkw.search(v) for v in variants))
-        or (re_pdom is not None and any(re_pdom.search(v) for v in variants))
-    )
+        re_pkw is not None and any(re_pkw.search(v) for v in variants)
+    ) or (re_pdom is not None and any(re_pdom.search(v) for v in variants))
 
     if settings["require_portal_or_brand"] and not (
         has_brand_or_hint or has_portal_signal
