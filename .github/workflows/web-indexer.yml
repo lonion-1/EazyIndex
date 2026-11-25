@@ -55,9 +55,9 @@ jobs:
       - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
         run: |
           if [ -d "_vault/_config" ]; then
-            python3 -m indexer.web_indexer --config-dir _vault/_config --check-config
+            python3 -m scripts.web_indexer --config-dir _vault/_config --check-config
           else
-            python3 -m indexer.web_indexer --config-dir config.example --check-config
+            python3 -m scripts.web_indexer --config-dir config.example --check-config
           fi
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
