@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EazyWhale
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Front-Gate Web Indexer (Tier 1) — Orkestrator Utama."""
 
@@ -19,9 +19,9 @@ from .discovery.auto_seed import harvest_autocomplete
 from .discovery.engines import EnginePool, SearchHit, build_engine_pool
 from .discovery.feed_cache import report_query_outcome
 from .discovery.queries import build_mirror_queries, pick_run_queries
-from .inspect.dom_parser import parse_html_zones
-from .inspect.fetcher import SimpleHttpClient
-from .inspect.gatekeeper import decide_gate_verdict, needs_adaptive_probe
+from .inspector.dom_parser import parse_html_zones
+from .inspector.fetcher import SimpleHttpClient
+from .inspector.gatekeeper import decide_gate_verdict, needs_adaptive_probe
 from .models import GateVerdict
 from .self_test import run_self_test
 from .storage.state import IndexerState
