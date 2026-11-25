@@ -1,6 +1,6 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Pemanen saran kata kunci (multi-provider autocomplete) untuk memperkaya pool query Indexer."""
+"""Pemanen saran kata kunci berbasis Web Autocomplete (konfigurasi penuh via config/auto_seed.toml)."""
 
 from __future__ import annotations
 
@@ -21,18 +21,21 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from indexer.config_loader import ConfigError, load_indexer_config
+from indexer.config_loader import (
+    ConfigError,
+    _compile_literals,
+    _load_toml,
+    load_indexer_config,
+)
 from indexer.text_utils import deobfuscate
 
 SUGGEST_FILE = ROOT / ".cache" / "webindex" / "suggest.json"
-MAX_PER_CAT = 600
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
     "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:133.0) Gecko/20100101 Firefox/133.0",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 ]
 
 RE_THAI = re.compile(r"[\u0E00-\u0E7F]")
@@ -54,21 +57,6 @@ DDG_KL_MAP: dict[tuple[str, str], str] = {
     ("ko", "kr"): "kr-kr",
 }
 
-MODIFIERS_BY_CAT: dict[str, tuple[str, ...]] = {
-    "judol": ("link", "login", "daftar", "alternatif", "terbaru", "{year}"),
-    "film": ("nonton", "streaming", "sub indo", "terbaru", "{year}"),
-    "comic": ("baca", "komik", "sub indo", "chapter terbaru", "{year}"),
-    "anime": ("nonton", "sub indo", "episode terbaru", "{year}"),
-    "adult": ("link", "terbaru", "bokep", "{year}"),
-}
-
-NATIVE_MODIFIERS: dict[str, tuple[str, ...]] = {
-    "jp": ("無料", "最新", "raw", "{year}"),
-    "th": ("ซับไทย", "ออนไลน์", "ล่าสุด", "{year}"),
-    "vn": ("vietsub", "mới nhất", "link", "{year}"),
-    "kr": ("무료", "최신", "다시보기", "{year}"),
-}
-
 
 class ProviderBlockedError(Exception):
     """Dilempar saat provider membalas HTTP 403/429 agar hanya provider tersebut yang dimatikan."""
@@ -83,6 +71,81 @@ def norm_q(text: str) -> str:
     return " ".join(html.unescape(text).split()).strip().lower()
 
 
+def load_seed_settings(cdir: Path) -> dict:
+    toml_path = cdir / "auto_seed.toml"
+    raw: dict = {}
+    if toml_path.exists():
+        try:
+            raw = _load_toml(toml_path)
+        except ConfigError as e:
+            log("SUGGEST", f"Peringatan auto_seed.toml ({e}) — memakai default")
+
+    gen = raw.get("general") or {}
+    src = raw.get("sources") or {}
+    prb = raw.get("probe") or {}
+    flt = raw.get("filters") or {}
+    mods = raw.get("modifiers") or {}
+
+    noise_words = [w for w in flt.get("noise_words", []) if isinstance(w, str)]
+    re_noise_words = _compile_literals(noise_words, word_boundary=True)
+
+    noise_rx_list = []
+    for pat in flt.get("noise_regexes", [r"[?!]"]):
+        if isinstance(pat, str) and pat.strip():
+            try:
+                noise_rx_list.append(re.compile(pat.strip(), re.IGNORECASE))
+            except re.error as e:
+                log("SUGGEST", f"Regex noise diabaikan ({pat!r}): {e}")
+
+    portal_kw = [w for w in flt.get("portal_keywords", []) if isinstance(w, str)]
+    re_portal_kw = _compile_literals(portal_kw, word_boundary=True)
+
+    tlds = [
+        re.escape(t.strip().lower().lstrip("."))
+        for t in flt.get("portal_tlds", [])
+        if isinstance(t, str) and t.strip()
+    ]
+    re_portal_dom = (
+        re.compile(rf"\b[a-z0-9-]{{2,}}\.(?:{'|'.join(tlds)})\b", re.IGNORECASE)
+        if tlds
+        else None
+    )
+
+    return {
+        "max_per_cat": int(gen.get("max_per_cat", 600)),
+        "min_words": int(gen.get("min_words", 1)),
+        "max_words": int(gen.get("max_words", 5)),
+        "min_len": int(gen.get("min_len", 4)),
+        "max_len": int(gen.get("max_len", 48)),
+        "sleep_min": float(gen.get("sleep_min", 1.2)),
+        "sleep_max": float(gen.get("sleep_max", 2.5)),
+        "require_portal_or_brand": bool(gen.get("require_portal_or_brand", True)),
+        "enabled_sources": list(src.get("enabled", ["google", "ddg"])),
+        "weights": dict(src.get("weights") or {"google": 0.55, "ddg": 0.45}),
+        "jp_weights": dict(
+            src.get("jp_weights") or {"yahoo_jp": 0.50, "google": 0.30, "ddg": 0.20}
+        ),
+        "brand_plain_prob": float(prb.get("brand_plain_prob", 0.45)),
+        "year_prob": float(prb.get("year_prob", 0.25)),
+        "prefix_modifiers": {
+            m.strip().lower()
+            for m in prb.get(
+                "prefix_modifiers", ["link", "login", "daftar", "situs", "web"]
+            )
+            if isinstance(m, str)
+        },
+        "default_modifiers": list(
+            prb.get("default_modifiers", ["situs", "link", "alternatif", "{year}"])
+        ),
+        "mods_by_cat": dict(mods.get("by_category") or {}),
+        "mods_by_locale": dict(mods.get("by_locale") or {}),
+        "re_noise_words": re_noise_words,
+        "noise_regexes": noise_rx_list,
+        "re_portal_kw": re_portal_kw,
+        "re_portal_dom": re_portal_dom,
+    }
+
+
 def pick_locale(seed: str) -> tuple[str, str]:
     if RE_THAI.search(seed):
         return ("th", "th")
@@ -95,46 +158,53 @@ def pick_locale(seed: str) -> tuple[str, str]:
     return random.choice([("id", "id"), ("id", "id"), ("ms", "my"), ("en", "ph")])
 
 
-def build_probe_query(seed: str, cat: str, year: str, gl: str) -> str:
+def build_osint_probe(
+    seed: str, is_brand: bool, cat: str, year: str, gl: str, settings: dict
+) -> str:
     r = random.random()
-    if r < 0.55:
+    plain_cut = settings["brand_plain_prob"]
+    year_cut = plain_cut + settings["year_prob"]
+
+    if is_brand and r < plain_cut:
         return seed
-    if r < 0.80:
+    if r < year_cut:
         return f"{seed} {year}"
 
-    mods = NATIVE_MODIFIERS.get(gl) or MODIFIERS_BY_CAT.get(cat, ("terbaru", "{year}"))
-    mod = random.choice(mods).replace("{year}", year)
-    if mod in seed.lower():
+    loc_mods = settings["mods_by_locale"].get(gl)
+    cat_mods = settings["mods_by_cat"].get(cat) or settings["default_modifiers"]
+    mods = loc_mods if loc_mods else cat_mods
+    if not mods:
         return seed
-    if gl in NATIVE_MODIFIERS:
+
+    mod = str(random.choice(mods)).replace("{year}", year).strip()
+    if not mod or mod.lower() in seed.lower():
+        return seed
+    if loc_mods:
         return f"{seed} {mod}"
-    return (
-        f"{mod} {seed}"
-        if mod in ("link", "login", "daftar", "nonton", "baca")
-        else f"{seed} {mod}"
-    )
+    if mod.lower() in settings["prefix_modifiers"]:
+        return f"{mod} {seed}"
+    return f"{seed} {mod}"
 
 
-def choose_source(gl: str, disabled: set[str]) -> str | None:
-    if gl == "jp":
-        candidates = [("yahoo_jp", 0.50), ("youtube", 0.30), ("google", 0.20)]
-    else:
-        candidates = [("google", 0.40), ("youtube", 0.35), ("ddg", 0.25)]
-
-    active = [(src, w) for src, w in candidates if src not in disabled]
+def choose_web_source(
+    gl: str, disabled: set[str], settings: dict
+) -> str | None:
+    enabled = set(settings["enabled_sources"])
+    weight_map = settings["jp_weights"] if gl == "jp" else settings["weights"]
+    active = [
+        (src, float(w))
+        for src, w in weight_map.items()
+        if src in enabled and src not in disabled and float(w) > 0
+    ]
     if not active:
-        fallback = [
-            src
-            for src in ("ddg", "youtube", "google", "yahoo_jp")
-            if src not in disabled
-        ]
+        fallback = [s for s in enabled if s not in disabled]
         return random.choice(fallback) if fallback else None
 
     sources, weights = zip(*active)
     return random.choices(sources, weights=weights, k=1)[0]
 
 
-def fetch_suggestions(q_query: str, hl: str, gl: str, source: str) -> list[str]:
+def fetch_web_suggestions(q_query: str, hl: str, gl: str, source: str) -> list[str]:
     encoded_q = urllib.parse.quote(q_query)
 
     if source == "youtube":
@@ -201,6 +271,64 @@ def fetch_suggestions(q_query: str, hl: str, gl: str, source: str) -> list[str]:
     return []
 
 
+def is_valid_osint_query(
+    clean: str,
+    variants: list[str],
+    cat: str,
+    cat_rule,
+    cfg,
+    settings: dict,
+) -> bool:
+    words = clean.split()
+    if not (settings["min_words"] <= len(words) <= settings["max_words"]):
+        return False
+    if not (settings["min_len"] <= len(clean) <= settings["max_len"]):
+        return False
+    if clean.startswith(("http://", "https://")):
+        return False
+
+    re_nw = settings["re_noise_words"]
+    if re_nw is not None and any(re_nw.search(v) for v in variants):
+        return False
+    if any(rx.search(v) for rx in settings["noise_regexes"] for v in variants):
+        return False
+
+    neg_patterns = [
+        rx
+        for rx in (cat_rule.re_passive_context, cfg.legal.re_news_reporting)
+        if rx is not None
+    ]
+    if any(rx.search(v) for rx in neg_patterns for v in variants):
+        return False
+
+    has_brand_or_hint = (
+        cat_rule.re_domain_hints is not None
+        and any(cat_rule.re_domain_hints.search(v) for v in variants)
+    ) or (
+        cat == "judol"
+        and cfg.re_any_illegal_domain is not None
+        and any(cfg.re_any_illegal_domain.search(v) for v in variants)
+    )
+
+    re_pkw = settings["re_portal_kw"]
+    re_pdom = settings["re_portal_dom"]
+    has_portal_signal = (
+        (re_pkw is not None and any(re_pkw.search(v) for v in variants))
+        or (re_pdom is not None and any(re_pdom.search(v) for v in variants))
+    )
+
+    if settings["require_portal_or_brand"] and not (
+        has_brand_or_hint or has_portal_signal
+    ):
+        return False
+
+    if not has_brand_or_hint and cat_rule.re_active_intent is not None:
+        if not any(cat_rule.re_active_intent.search(v) for v in variants):
+            return False
+
+    return True
+
+
 def tulis_ringkasan(
     req_count: int,
     added: dict[str, list[str]],
@@ -216,7 +344,7 @@ def tulis_ringkasan(
     src_stat = ", ".join(f"{k}: +{v}" for k, v in sorted(hits_by_src.items())) or "-"
     blocked_note = f" | **Blocked:** {', '.join(sorted(disabled))}" if disabled else ""
     lines = [
-        "## 🔍 Multi-Source Suggest Harvester" + (" (dry-run)" if dry else ""),
+        "## 🔍 Web OSINT Suggest Harvester" + (" (dry-run)" if dry else ""),
         "",
         f"- **Request:** {req_count} | **Baru:** +{total_new} | **Total kolam:** {total_pool}{blocked_note}",
         f"- **Per Sumber:** {src_stat}",
@@ -236,7 +364,7 @@ def tulis_ringkasan(
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Harvest Multi-Source Autocomplete queries"
+        description="Harvest Web Autocomplete queries for OSINT domain discovery"
     )
     ap.add_argument(
         "--max-req", type=int, default=35, help="batas maksimal request per sesi"
@@ -247,11 +375,15 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="jalan tanpa menulis file")
     args = ap.parse_args(argv)
 
+    cdir = Path(args.config_dir) if args.config_dir else (ROOT / "config")
     try:
-        cfg = load_indexer_config(Path(args.config_dir) if args.config_dir else None)
+        cfg = load_indexer_config(cdir)
     except ConfigError as e:
         log("SUGGEST", f"Konfigurasi tidak tersedia ({e}) — dilewati")
         return 0
+
+    settings = load_seed_settings(cdir)
+    max_per_cat = settings["max_per_cat"]
 
     items: dict[str, list[str]] = {}
     if SUGGEST_FILE.exists():
@@ -297,34 +429,25 @@ def main(argv=None) -> int:
             if isinstance(q, str)
         }
 
-        base_seeds = list(
-            dict.fromkeys(
-                s.strip()
-                for s in (
-                    list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", []))
-                )
-                if isinstance(s, str) and s.strip()
-            )
-        )
-        chained_seeds = (
+        brands = {
+            s.strip().lower()
+            for s in q_cfg.get("brands", [])
+            if isinstance(s, str) and s.strip()
+        }
+        fillers = [
+            s.strip()
+            for s in q_cfg.get("fillers", [])
+            if isinstance(s, str) and s.strip()
+        ]
+        chained = (
             random.sample(existing_list, k=min(2, len(existing_list)))
             if existing_list
             else []
         )
-        seed_pool = list(dict.fromkeys(base_seeds + chained_seeds))
+
+        seed_pool = list(dict.fromkeys(list(brands) + chained + fillers))
         if not seed_pool:
             continue
-
-        pos_patterns = [
-            rx
-            for rx in (cat_rule.re_active_intent, cat_rule.re_domain_hints)
-            if rx is not None
-        ]
-        neg_patterns = [
-            rx
-            for rx in (cat_rule.re_passive_context, cfg.legal.re_news_reporting)
-            if rx is not None
-        ]
 
         sample_seeds = random.sample(seed_pool, k=min(per_cat_quota, len(seed_pool)))
         for seed in sample_seeds:
@@ -332,44 +455,29 @@ def main(argv=None) -> int:
                 break
 
             hl, gl = pick_locale(seed)
-            source = choose_source(gl, disabled_sources)
+            source = choose_web_source(gl, disabled_sources, settings)
             if source is None:
                 log(
-                    "SUGGEST", "semua provider terkena rate-limit/error → berhenti aman"
+                    "SUGGEST",
+                    "semua provider web terkena rate-limit/error → berhenti aman",
                 )
                 req_count = args.max_req
                 break
 
-            q_query = build_probe_query(seed, cat, year, gl)
+            is_brand = seed.strip().lower() in brands
+            q_query = build_osint_probe(seed, is_brand, cat, year, gl, settings)
             req_count += 1
 
             try:
-                suggestions = fetch_suggestions(q_query, hl, gl, source)
+                suggestions = fetch_web_suggestions(q_query, hl, gl, source)
                 err_by_src[source] = 0
                 for s in suggestions:
                     clean = norm_q(s)
-                    if not (4 <= len(clean) <= 80) or clean.startswith(
-                        ("http://", "https://")
-                    ):
+                    if clean in existing or clean in known_plain:
                         continue
                     variants = list(dict.fromkeys([clean] + deobfuscate(clean)))
-                    is_hit = (
-                        not pos_patterns
-                        or any(rx.search(v) for rx in pos_patterns for v in variants)
-                        or (
-                            cat == "judol"
-                            and cfg.re_any_illegal_domain is not None
-                            and any(
-                                cfg.re_any_illegal_domain.search(v) for v in variants
-                            )
-                        )
-                    )
-                    is_neg = any(rx.search(v) for rx in neg_patterns for v in variants)
-                    if (
-                        clean not in existing
-                        and clean not in known_plain
-                        and is_hit
-                        and not is_neg
+                    if is_valid_osint_query(
+                        clean, variants, cat, cat_rule, cfg, settings
                     ):
                         existing.add(clean)
                         existing_list.append(clean)
@@ -392,10 +500,10 @@ def main(argv=None) -> int:
                         f"provider {source} dinonaktifkan sementara (3x error beruntun)",
                     )
 
-            time.sleep(random.uniform(1.2, 2.5))
+            time.sleep(random.uniform(settings["sleep_min"], settings["sleep_max"]))
 
     for cat in items:
-        items[cat] = items[cat][-MAX_PER_CAT:]
+        items[cat] = items[cat][-max_per_cat:]
 
     added_total = sum(len(v) for v in added_by_cat.values())
     total_pool = sum(len(v) for v in items.values())
@@ -412,8 +520,9 @@ def main(argv=None) -> int:
             if p.exists() and not p.is_dir():
                 p.unlink()
         SUGGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SUGGEST_FILE.with_name("suggest.json.tmp")
         tmp.write_text(
-            json.dumps({"items": items}, ensure_ascii=False, indent=0) + "\n",
+            json.dumps({"items": items}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         os.replace(tmp, SUGGEST_FILE)
