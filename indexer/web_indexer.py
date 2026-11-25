@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from .main import main
+from indexer.main import main
 
 if __name__ == "__main__":
     code = main()
