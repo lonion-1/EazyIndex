@@ -60,9 +60,11 @@ jobs:
                       else:
                           dest = Path("config") / item.name
                   elif ext == ".py":
-                      if Path("indexer").exists() and any(k in content for k in ("Scorer", "Gate", "Extractor", "class ")):
-                          cand_idx = Path("indexer") / item.name
-                          dest = cand_idx if cand_idx.exists() else Path("scripts") / item.name
+                      cand_idx = Path("indexer") / item.name
+                      if cand_idx.exists():
+                         dest = cand_idx
+                      else:
+                          dest = Path("scripts") / item.name
                       else:
                           dest = Path("scripts") / item.name
                   elif ext == ".txt":
