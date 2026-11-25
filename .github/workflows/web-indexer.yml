@@ -1,6 +1,6 @@
 name: Front-Gate Web Indexer (Tier 1)
-# Copyright (c) 2026 EazyWhale
-# Licensed under the AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# Licensed under the MIT
 
 on:
   workflow_dispatch:
@@ -49,12 +49,12 @@ jobs:
       - name: Run Front-Gate Web Indexer
         run: |
           if [ -d "_vault/config" ]; then
-            python3 scripts/web_indexer.py \
+            python3 indexer/web_indexer.py \
               --config-dir _vault/config \
               --queries-feed _vault/queries/proven_queries.jsonl \
               --feedback-out Candidates/_query_telemetry.jsonl
           else
-            python3 scripts/web_indexer.py --config-dir config.example --check-config
+            python3 indexer/web_indexer.py --config-dir config.example --check-config
           fi
           rm -rf _vault
           
@@ -64,7 +64,7 @@ jobs:
           python-version: '3.12'
 
       - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
-        run: python3 scripts/web_indexer.py --check-config
+        run: python3 indexer/web_indexer.py --check-config
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
@@ -79,7 +79,7 @@ jobs:
           ARGS="--budget $(( MINS * 60 ))"
           if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          python3 -u scripts/web_indexer.py $ARGS
+          python3 -u indexer/web_indexer.py $ARGS
 
       - name: Simpan cache indeks
         if: always() && inputs.dry_run != true
