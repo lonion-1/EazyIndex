@@ -1,1 +1,6 @@
-
+EazyBlock.txt merge=union
+Allowlist.txt merge=union
+Graduated.txt merge=union
+Curated/*.txt merge=union
+Pool/*.jsonl merge=union
+Suspicious/*.jsonl merge=union
