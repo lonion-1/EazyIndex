@@ -1,0 +1,95 @@
+name: Front-Gate Web Indexer (Tier 1)
+# Copyright (c) 2026 EazyWhale
+# Licensed under the AGPL-3.0-or-later
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Durasi maksimal (menit)'
+        type: string
+        default: '120'
+      cats:
+        description: 'Batasi kategori (koma, mis. comic,film,judol). Kosong = semua'
+        type: string
+        default: ''
+      dry_run:
+        description: 'Dry-run (tidak menulis file apa pun)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '40 17 */2 * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: frontgate-webindex
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Ambil isi repo
+        uses: actions/checkout@v4
+
+      - name: Pasang Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
+        run: python3 scripts/web_indexer.py --check-config
+
+      - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/webindex
+          key: webindex-${{ github.run_id }}
+          restore-keys: webindex-
+
+      - name: Jalankan Front-Gate Web Indexer
+        run: |
+          MINS="${{ inputs.minutes || '120' }}"
+          ARGS="--budget $(( MINS * 60 ))"
+          if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python3 -u scripts/web_indexer.py $ARGS
+
+      - name: Simpan cache indeks
+        if: always() && inputs.dry_run != true
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/webindex
+          key: webindex-${{ github.run_id }}
+
+      - name: Simpan kandidat ke GitHub
+        if: inputs.dry_run != true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git reset --soft "origin/$BRANCH"
+            git reset HEAD -- .
+            git add Candidates
+
+            if git diff --staged --quiet; then
+              echo "Tidak ada kandidat baru."
+              exit 0
+            fi
+
+            git commit -m "chore(indexer): perbarui kandidat Front-Gate [skip ci]"
+            if git push origin "HEAD:$BRANCH"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+          
