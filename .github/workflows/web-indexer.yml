@@ -73,7 +73,7 @@ jobs:
           if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
 
-          python3 -u -m indexer.web_indexer $ARGS
+          python3 -u -m scripts.web_indexer $ARGS
           rm -rf _vault config
 
       - name: Simpan cache indeks
