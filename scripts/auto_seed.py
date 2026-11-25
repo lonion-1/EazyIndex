@@ -17,9 +17,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from .web_indexer import ROOT, deobfuscate, load_config, log
+from indexer.config_loader import ConfigError, load_indexer_config
+from indexer.text_utils import deobfuscate
 
 SUGGEST_FILE = ROOT / ".cache" / "webindex" / "suggest.json"
 MAX_PER_CAT = 600
@@ -69,6 +72,11 @@ NATIVE_MODIFIERS: dict[str, tuple[str, ...]] = {
 
 class ProviderBlockedError(Exception):
     """Dilempar saat provider membalas HTTP 403/429 agar hanya provider tersebut yang dimatikan."""
+
+
+def log(tag: str, msg: str) -> None:
+    ts = time.strftime("%H:%M:%S", time.gmtime())
+    print(f"[{ts}] [{tag}] {msg}", flush=True)
 
 
 def norm_q(text: str) -> str:
@@ -162,7 +170,6 @@ def fetch_suggestions(q_query: str, hl: str, gl: str, source: str) -> list[str]:
             raise ProviderBlockedError(f"HTTP {e.code}") from e
         raise
 
-    # Antisipasi jika endpoint mengembalikan format JSONP callback(...)
     m_jsonp = RE_JSONP.match(raw)
     if m_jsonp:
         raw = m_jsonp.group(1)
@@ -234,16 +241,17 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--max-req", type=int, default=35, help="batas maksimal request per sesi"
     )
+    ap.add_argument(
+        "--config-dir", type=str, default="", help="direktori konfigurasi TOML"
+    )
     ap.add_argument("--dry-run", action="store_true", help="jalan tanpa menulis file")
     args = ap.parse_args(argv)
 
-    cfg = load_config()
-    if cfg.classifier is None:
-        log("SUGGEST", "config/index.toml tidak ada — dilewati")
+    try:
+        cfg = load_indexer_config(Path(args.config_dir) if args.config_dir else None)
+    except ConfigError as e:
+        log("SUGGEST", f"Konfigurasi tidak tersedia ({e}) — dilewati")
         return 0
-
-    icfg = cfg.index or {}
-    queries_cfg = icfg.get("queries") or {}
 
     items: dict[str, list[str]] = {}
     if SUGGEST_FILE.exists():
@@ -268,7 +276,9 @@ def main(argv=None) -> int:
     err_by_src: dict[str, int] = {}
     year = str(time.gmtime().tm_year)
 
-    cat_names = [c for c in queries_cfg if c != "mirror" and c in cfg.classifier.cats]
+    cat_names = [
+        c for c, rule in cfg.categories.items() if rule.enabled and rule.queries_cfg
+    ]
     random.shuffle(cat_names)
     per_cat_quota = max(3, args.max_req // max(1, len(cat_names)))
 
@@ -276,13 +286,15 @@ def main(argv=None) -> int:
         if req_count >= args.max_req:
             break
 
-        cat_cls = cfg.classifier.cats[cat]
-        q_cfg = queries_cfg[cat]
+        cat_rule = cfg.categories[cat]
+        q_cfg = cat_rule.queries_cfg
 
         existing_list = items.setdefault(cat, [])
         existing = set(existing_list)
         known_plain = {
-            norm_q(q.replace("{year}", year)) for q in q_cfg.get("plain", [])
+            norm_q(q.replace("{year}", year))
+            for q in q_cfg.get("plain", [])
+            if isinstance(q, str)
         }
 
         base_seeds = list(
@@ -291,7 +303,7 @@ def main(argv=None) -> int:
                 for s in (
                     list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", []))
                 )
-                if s and s.strip()
+                if isinstance(s, str) and s.strip()
             )
         )
         chained_seeds = (
@@ -302,6 +314,17 @@ def main(argv=None) -> int:
         seed_pool = list(dict.fromkeys(base_seeds + chained_seeds))
         if not seed_pool:
             continue
+
+        pos_patterns = [
+            rx
+            for rx in (cat_rule.re_active_intent, cat_rule.re_domain_hints)
+            if rx is not None
+        ]
+        neg_patterns = [
+            rx
+            for rx in (cat_rule.re_passive_context, cfg.legal.re_news_reporting)
+            if rx is not None
+        ]
 
         sample_seeds = random.sample(seed_pool, k=min(per_cat_quota, len(seed_pool)))
         for seed in sample_seeds:
@@ -329,16 +352,24 @@ def main(argv=None) -> int:
                         ("http://", "https://")
                     ):
                         continue
-                    variants = [clean] + deobfuscate(clean)
-                    is_hit = any(cat_cls.re_strong.search(v) for v in variants) or (
-                        cat == "judol"
-                        and any(cfg.re_strong.search(v) for v in variants)
+                    variants = list(dict.fromkeys([clean] + deobfuscate(clean)))
+                    is_hit = (
+                        not pos_patterns
+                        or any(rx.search(v) for rx in pos_patterns for v in variants)
+                        or (
+                            cat == "judol"
+                            and cfg.re_any_illegal_domain is not None
+                            and any(
+                                cfg.re_any_illegal_domain.search(v) for v in variants
+                            )
+                        )
                     )
+                    is_neg = any(rx.search(v) for rx in neg_patterns for v in variants)
                     if (
                         clean not in existing
                         and clean not in known_plain
                         and is_hit
-                        and not any(cat_cls.re_neg.search(v) for v in variants)
+                        and not is_neg
                     ):
                         existing.add(clean)
                         existing_list.append(clean)
