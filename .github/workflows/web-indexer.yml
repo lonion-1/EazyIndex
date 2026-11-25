@@ -37,6 +37,11 @@ jobs:
       - name: Ambil isi repo
         uses: actions/checkout@v4
 
+      - name: Pasang Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Checkout EazyVault Config & Proven Queries (Private)
         uses: actions/checkout@v4
         with:
@@ -44,27 +49,16 @@ jobs:
           token: ${{ secrets.EAZYVAULT_TOKEN }}
           sparse-checkout: |
             _config/
+            queries/
           path: _vault
 
-      - name: Run Front-Gate Web Indexer
-        run: |
-          if [ -d "_vault/config" ]; then
-            python3 indexer/web_indexer.py \
-              --config-dir _vault/config \
-              --queries-feed _vault/queries/proven_queries.jsonl \
-              --feedback-out Candidates/_query_telemetry.jsonl
-          else
-            python3 indexer/web_indexer.py --config-dir config.example --check-config
-          fi
-          rm -rf _vault
-          
-      - name: Pasang Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
-        run: python3 indexer/web_indexer.py --check-config
+        run: |
+          if [ -d "_vault/_config" ]; then
+            python3 -m indexer.web_indexer --config-dir _vault/_config --check-config
+          else
+            python3 -m indexer.web_indexer --config-dir config.example --check-config
+          fi
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
@@ -77,9 +71,22 @@ jobs:
         run: |
           MINS="${{ inputs.minutes || '120' }}"
           ARGS="--budget $(( MINS * 60 ))"
+
+          if [ -d "_vault/_config" ]; then
+            ARGS="$ARGS --config-dir _vault/_config"
+            if [ -f "_vault/queries/proven_queries.jsonl" ]; then
+              ARGS="$ARGS --queries-feed _vault/queries/proven_queries.jsonl"
+            fi
+            ARGS="$ARGS --feedback-out Candidates/_query_telemetry.jsonl"
+          else
+            ARGS="$ARGS --config-dir config.example"
+          fi
+
           if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          python3 -u indexer/web_indexer.py $ARGS
+
+          python3 -u -m indexer.web_indexer $ARGS
+          rm -rf _vault
 
       - name: Simpan cache indeks
         if: always() && inputs.dry_run != true
@@ -113,4 +120,3 @@ jobs:
             sleep 5
           done
           exit 1
-          
