@@ -11,8 +11,8 @@ Menguji:
 from __future__ import annotations
 
 from .config_loader import IndexerConfig
-from .inspect.dom_parser import parse_html_zones
-from .inspect.gatekeeper import decide_gate_verdict, needs_adaptive_probe
+from .inspector.dom_parser import parse_html_zones
+from .inspector.gatekeeper import decide_gate_verdict, needs_adaptive_probe
 
 BENIGN_TRAPS: list[tuple[str, str]] = [
     (
