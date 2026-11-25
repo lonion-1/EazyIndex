@@ -114,9 +114,7 @@ def _load_allowlist() -> set[str]:
         if not path.exists():
             continue
         try:
-            for line in path.read_text(
-                encoding="utf-8", errors="ignore"
-            ).splitlines():
+            for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
                 s = line.split("#", 1)[0].strip()
                 dom = _clean_domain(s)
                 if dom:

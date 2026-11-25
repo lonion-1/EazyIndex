@@ -14,9 +14,11 @@ from pathlib import Path
 try:
     from indexer.text_utils import deobfuscate
 except Exception:
+
     def deobfuscate(text: str, max_len: int = 4000) -> list[str]:
         s = " ".join((text or "")[:max_len].lower().split())
         return [s] if s else []
+
 
 _HERE = Path(__file__).resolve().parent
 ROOT = _HERE.parent if _HERE.name == "scripts" else _HERE
@@ -195,7 +197,9 @@ def get_universal_rules(cfg) -> dict[str, dict]:
 
         default_min = getattr(c_rule, "min_illegal_score", 4) if c_rule else 4
         merged[cat] = {
-            "min_score": int(d_sec.get("min_score", i_sec.get("min_score", default_min))),
+            "min_score": int(
+                d_sec.get("min_score", i_sec.get("min_score", default_min))
+            ),
             "re_strong": compiled_dom_strong,
             "re_strong_rx": compiled_dom_rx,
             "re_dom_strong": compiled_dom_strong,
