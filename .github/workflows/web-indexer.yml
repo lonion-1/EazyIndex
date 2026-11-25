@@ -37,6 +37,28 @@ jobs:
       - name: Ambil isi repo
         uses: actions/checkout@v4
 
+      - name: Checkout EazyVault Config & Proven Queries (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: lonion-1/EazyVault
+          token: ${{ secrets.EAZYVAULT_TOKEN }}
+          sparse-checkout: |
+            config
+            queries/proven_queries.jsonl
+          path: _vault
+
+      - name: Run Front-Gate Web Indexer
+        run: |
+          if [ -d "_vault/config" ]; then
+            python3 scripts/web_indexer.py \
+              --config-dir _vault/config \
+              --queries-feed _vault/queries/proven_queries.jsonl \
+              --feedback-out Candidates/_query_telemetry.jsonl
+          else
+            python3 scripts/web_indexer.py --config-dir config.example --check-config
+          fi
+          rm -rf _vault
+          
       - name: Pasang Python 3.12
         uses: actions/setup-python@v5
         with:
