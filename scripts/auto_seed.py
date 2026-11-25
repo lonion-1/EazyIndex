@@ -407,7 +407,7 @@ def main(argv=None) -> int:
         req_count, added_by_cat, hits_by_src, disabled_sources, total_pool, args.dry_run
     )
 
-        if not args.dry_run:
+    if not args.dry_run:
         for p in (SUGGEST_FILE.parent.parent, SUGGEST_FILE.parent):
             if p.exists() and not p.is_dir():
                 p.unlink()
