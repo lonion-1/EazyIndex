@@ -29,7 +29,8 @@ class EngineRouter:
         self.cat_bias: dict[str, list[str]] = self.eng.get("category_bias", {})
         self.pagination: dict[str, dict] = self.eng.get("pagination", {})
         self.waf_patterns: tuple[str, ...] = tuple(
-            p.lower() for p in (self.eng.get("waf_signatures") or {}).get("patterns", [])
+            p.lower()
+            for p in (self.eng.get("waf_signatures") or {}).get("patterns", [])
         )
         self.state_path = state_path
         self.health: dict[str, EngineHealth] = self._load_health()
@@ -55,7 +56,9 @@ class EngineRouter:
             }
             for k, v in sorted(self.health.items())
         }
-        tmp.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.write_text(
+            json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         os.replace(tmp, path := self.state_path)
 
     def wave_policy(self, name: str) -> dict:
@@ -113,5 +116,6 @@ class EngineRouter:
         base_cool = int(self.eng.get("cooldown_base_seconds", 1800))
         max_cool = int(self.eng.get("cooldown_max_seconds", 86400))
         mult = 4 if reason in ("captcha", "waf_403", "rate_429") else 1
-        h.cool_until = now + min(max_cool, base_cool * mult * (2 ** min(h.fails - 1, 5)))
-      
+        h.cool_until = now + min(
+            max_cool, base_cool * mult * (2 ** min(h.fails - 1, 5))
+        )
