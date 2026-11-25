@@ -1,0 +1,95 @@
+# Profil Entitas Legal & Kontra-Bukti Anti False Positive
+# Perbarui file ini SAJA ketika menemukan false positive pada situs sah (RS, toko, media, platform legal).
+
+[general]
+institutional_tlds = [
+  ".go.id", ".ac.id", ".sch.id", ".mil.id", ".desa.id",
+  ".gov", ".edu", ".mil", ".gov.uk", ".ac.uk", ".gov.au", ".edu.au", ".go.jp", ".ac.jp",
+]
+
+jsonld_benign_types = [
+  "Hospital", "MedicalClinic", "Physician", "Dentist", "Pharmacy", "DiagnosticLab",
+  "Store", "LocalBusiness", "Restaurant", "Bakery", "CafeOrCoffeeShop", "GroceryStore",
+  "NewsMediaOrganization", "GovernmentOrganization", "EducationalOrganization",
+  "CollegeOrUniversity", "School", "BankOrCreditUnion", "Corporation", "Organization",
+]
+
+authority_domains = [
+  "wikipedia.org", "kompas.com", "detik.com", "tempo.co", "cnnindonesia.com",
+  "antaranews.com", "republika.co.id", "liputan6.com", "cnbcindonesia.com",
+  "kontan.co.id", "bisnis.com", "kemkes.go.id", "ojk.go.id", "komdigi.go.id",
+  "play.google.com", "apps.apple.com",
+]
+
+# Frasa pemberitaan / edukasi / hukum yang menandakan pembicaraan pasif, bukan penyedia layanan ilegal
+news_reporting_markers = [
+  "polri gerebek", "bareskrim tangkap", "polisi menangkap", "digerebek polisi",
+  "satgas pemberantasan", "kemenkominfo blokir", "komdigi blokir", "ojk mengimbau",
+  "bahaya kecanduan", "cara berhenti", "dampak negatif", "menurut undang-undang",
+  "pasal 303 kuhp", "uu ite", "pidana penjara", "laporan wartawan", "dewan pers",
+  "pedoman media siber", "pengertian dan definisi", "arti kata dalam kamus",
+]
+
+[adaptive_probes]
+identity_paths = [
+  "/about", "/about-us", "/tentang", "/tentang-kami",
+  "/contact", "/kontak", "/redaksi", "/layanan", "/profil",
+]
+action_path_regex = "(?i)/(?:chapter|ch|episode|ep|nonton|watch|movie|film|stream|baca|read|daftar|register|login|slot|vip)[-_./0-9]*"
+
+[profiles.healthcare]
+label = "Rumah Sakit, Klinik & Layanan Kesehatan"
+weight = 3
+nav_paths = ["/jadwal-dokter", "/dokter", "/layanan", "/poli", "/igd", "/rawat-jalan", "/medical-checkup", "/appointment", "/doctors"]
+body_markers = [
+  "jadwal dokter", "rawat jalan", "rawat inap", "igd 24 jam", "instalasi gawat darurat",
+  "dokter spesialis", "rekam medis", "bpjs kesehatan", "kementerian kesehatan",
+  "book an appointment", "patient portal", "health checkup", "medical services",
+  "klinik pratama", "klinik utama", "rumah sakit umum", "rsud", "puskesmas", "apotek",
+]
+
+[profiles.retail_commerce]
+label = "Toko Retail, Kuliner & Niaga Sah"
+weight = 3
+nav_paths = ["/cart", "/keranjang", "/checkout", "/shop", "/produk", "/products", "/katalog", "/menu", "/store", "/locations", "/cabang"]
+body_markers = [
+  "add to cart", "shopping cart", "keranjang belanja", "checkout", "cek resi",
+  "metode pengiriman", "kurir pengiriman", "syarat pengembalian", "garansi resmi",
+  "sertifikat halal", "izin edar bpom", "nomor induk berusaha", "toko fisik",
+  "jam operasional toko", "pesan antar", "beli sekarang",
+]
+
+[profiles.news_media]
+label = "Portal Berita & Jurnalistik Resmi"
+weight = 3
+nav_paths = ["/redaksi", "/pedoman-media-siber", "/indeks", "/nasional", "/internasional", "/ekonomi", "/olahraga", "/teknologi", "/hukum"]
+body_markers = [
+  "susunan redaksi", "pedoman media siber", "terverifikasi dewan pers",
+  "kode etik jurnalistik", "pemimpin redaksi", "wartawan", "indeks berita",
+  "hak jawab", "hak koreksi", "penerbit media",
+]
+
+[profiles.education_gov]
+label = "Pendidikan, Kampus & Layanan Publik"
+weight = 3
+nav_paths = ["/akademik", "/fakultas", "/prodi", "/pmb", "/ppid", "/transparansi", "/publikasi", "/peraturan"]
+body_markers = [
+  "penerimaan mahasiswa baru", "program studi", "akreditasi ban-pt", "kalender akademik",
+  "pejabat pengelola informasi dan dokumentasi", "layanan publik", "standar pelayanan",
+]
+
+[profiles.licensed_entertainment]
+label = "Platform Hiburan, Komik & Streaming Resmi Berlisensi"
+weight = 4
+official_domains = [
+  "webtoons.com", "mangaplus.shueisha.co.jp", "viz.com", "kodansha.us", "tapas.io",
+  "tappytoon.com", "lezhinus.com", "crunchyroll.com", "vidio.com", "netflix.com",
+  "disneyplus.com", "viu.com", "wetv.vip", "iq.com", "bilibili.tv", "primevideo.com",
+  "catchplay.com", "genflix.co.id", "visionplus.id", "maxstream.tv",
+]
+nav_paths = ["/subscribe", "/langganan", "/pricing", "/paket", "/originals", "/help-center", "/corporate"]
+body_markers = [
+  "all rights reserved", "licensed by", "hak cipta dilindungi", "distribusi resmi",
+  "berlangganan sekarang", "paket langganan", "unduh di google play", "download on the app store",
+  "official publisher", "original series", "hak siar resmi",
+]
