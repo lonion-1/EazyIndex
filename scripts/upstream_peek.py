@@ -6,6 +6,7 @@ Mengintip list besar (mis. HaGeZi / OISD) HANYA untuk mengecek domain yang sudah
 tertangkap oleh sistem kita sendiri (tidak pernah menyalin isi list besar).
 Jika beririsan -> tambah skor keyakinan & ekstrak 'domain_hints' baru yang sering muncul.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,17 +23,63 @@ ALLOWLIST_FILE = ROOT / "Allowlist.txt"
 BENIGN_POOL_FILE = ROOT / "_vault" / "benign_pool.txt"
 HINTS_OUT_FILE = PIPELINE_DIR / "learned_domain_hints.jsonl"
 
-STOPWORDS = frozenset({
-    "www", "com", "net", "org", "xyz", "info", "site", "online", "top", "vip", "pro",
-    "club", "shop", "store", "web", "app", "link", "live", "id", "co", "go", "ac",
-    "or", "sch", "mil", "my", "sg", "uk", "us", "jp", "kr", "cn", "asia", "click",
-    "login", "daftar", "resmi", "baru", "terbaru", "alternatif", "slot", "gacor",
-})
+STOPWORDS = frozenset(
+    {
+        "www",
+        "com",
+        "net",
+        "org",
+        "xyz",
+        "info",
+        "site",
+        "online",
+        "top",
+        "vip",
+        "pro",
+        "club",
+        "shop",
+        "store",
+        "web",
+        "app",
+        "link",
+        "live",
+        "id",
+        "co",
+        "go",
+        "ac",
+        "or",
+        "sch",
+        "mil",
+        "my",
+        "sg",
+        "uk",
+        "us",
+        "jp",
+        "kr",
+        "cn",
+        "asia",
+        "click",
+        "login",
+        "daftar",
+        "resmi",
+        "baru",
+        "terbaru",
+        "alternatif",
+        "slot",
+        "gacor",
+    }
+)
 
 # Contoh sumber list besar publik (bisa ditambah/diatur di config/fp_auditor.toml)
 UPSTREAM_FEEDS = [
-    ("hagezi-gambling", "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/gambling.txt"),
-    ("hagezi-tif", "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.txt"),
+    (
+        "hagezi-gambling",
+        "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/gambling.txt",
+    ),
+    (
+        "hagezi-tif",
+        "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.txt",
+    ),
 ]
 
 
@@ -43,7 +90,14 @@ def _load_safe_tokens() -> tuple[set[str], set[str]]:
         if not p.exists():
             continue
         for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-            s = ln.split("#", 1)[0].strip().lower().removeprefix("@@||").removeprefix("||").removesuffix("^")
+            s = (
+                ln.split("#", 1)[0]
+                .strip()
+                .lower()
+                .removeprefix("@@||")
+                .removeprefix("||")
+                .removesuffix("^")
+            )
             if not s or s.startswith("!"):
                 continue
             safe_domains.add(s)
@@ -66,7 +120,9 @@ def _extract_tokens(domain: str) -> list[str]:
 def _fetch_upstream_matches(url: str, our_domains: set[str]) -> set[str]:
     """Streaming baris demi baris agar hemat RAM; hanya mengembalikan irisan dengan our_domains."""
     matched: set[str] = set()
-    req = urllib.request.Request(url, headers={"User-Agent": "EazyWeb-IntersectionLearner/1.0"})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "EazyWeb-IntersectionLearner/1.0"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=45) as resp:
             for raw_line in resp:
@@ -84,7 +140,9 @@ def _fetch_upstream_matches(url: str, our_domains: set[str]) -> set[str]:
     return matched
 
 
-def peek_and_learn(records: list[dict], feeds: list[tuple[str, str]] | None = None) -> list[dict]:
+def peek_and_learn(
+    records: list[dict], feeds: list[tuple[str, str]] | None = None
+) -> list[dict]:
     """Perkaya record .jsonl dengan irisan list besar & simpan hint domain baru."""
     if not records:
         return records
@@ -97,7 +155,9 @@ def peek_and_learn(records: list[dict], feeds: list[tuple[str, str]] | None = No
     hits_by_domain: dict[str, list[str]] = {}
     for feed_name, feed_url in feeds:
         matched = _fetch_upstream_matches(feed_url, our_domains)
-        print(f"[UPSTREAM-PEEK] {feed_name}: {len(matched)} temuan kita ikut tertangkap di upstream")
+        print(
+            f"[UPSTREAM-PEEK] {feed_name}: {len(matched)} temuan kita ikut tertangkap di upstream"
+        )
         for dom in matched:
             hits_by_domain.setdefault(dom, []).append(feed_name)
 
@@ -109,11 +169,15 @@ def peek_and_learn(records: list[dict], feeds: list[tuple[str, str]] | None = No
         up_hits = hits_by_domain.get(dom, [])
         if up_hits:
             rec["s"] = int(rec.get("s", 0)) + (2 * len(up_hits))
-            rec["upstream_hit"] = sorted(set(rec.get("upstream_hit", [])) | set(up_hits))
-            rec.setdefault("trail", []).append({
-                "step": "upstream-peek",
-                "note": f"beririsan dengan {', '.join(up_hits)} (+{2 * len(up_hits)} skor)",
-            })
+            rec["upstream_hit"] = sorted(
+                set(rec.get("upstream_hit", [])) | set(up_hits)
+            )
+            rec.setdefault("trail", []).append(
+                {
+                    "step": "upstream-peek",
+                    "note": f"beririsan dengan {', '.join(up_hits)} (+{2 * len(up_hits)} skor)",
+                }
+            )
             # Kumpulkan token domain dari temuan terkonfirmasi untuk dipelajari sebagai hint baru
             toks = [t for t in _extract_tokens(dom) if t not in safe_tokens]
             if toks:
@@ -126,18 +190,29 @@ def peek_and_learn(records: list[dict], feeds: list[tuple[str, str]] | None = No
         for tok, freq in cnt.most_common(40):
             if freq < 2:
                 continue
-            rx = re.compile(rf"(?<!\w){re.escape(tok)}(?!\w)", re.I)
+            rx = re.compile(rf"(?<!\w){re.escape(tok)}(?!\w)", re.IGNORECASE)
             if any(rx.search(sd) for sd in safe_domains):
                 continue
-            learned_rows.append({"cat": cat, "hint": tok, "freq": freq, "source": "upstream_intersection"})
+            learned_rows.append(
+                {
+                    "cat": cat,
+                    "hint": tok,
+                    "freq": freq,
+                    "source": "upstream_intersection",
+                }
+            )
 
     if learned_rows:
         HINTS_OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = HINTS_OUT_FILE.with_name(HINTS_OUT_FILE.name + ".tmp")
         with tmp.open("w", encoding="utf-8") as f:
             for row in learned_rows:
-                f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+                f.write(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
         os.replace(tmp, HINTS_OUT_FILE)
-        print(f"[UPSTREAM-PEEK] +{len(learned_rows)} kandidat domain_hints baru disimpan ke {HINTS_OUT_FILE.name}")
+        print(
+            f"[UPSTREAM-PEEK] +{len(learned_rows)} kandidat domain_hints baru disimpan ke {HINTS_OUT_FILE.name}"
+        )
 
     return records
