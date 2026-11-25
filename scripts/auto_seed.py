@@ -407,9 +407,11 @@ def main(argv=None) -> int:
         req_count, added_by_cat, hits_by_src, disabled_sources, total_pool, args.dry_run
     )
 
-    if not args.dry_run:
+        if not args.dry_run:
+        for p in (SUGGEST_FILE.parent.parent, SUGGEST_FILE.parent):
+            if p.exists() and not p.is_dir():
+                p.unlink()
         SUGGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = SUGGEST_FILE.with_name("suggest.json.tmp")
         tmp.write_text(
             json.dumps({"items": items}, ensure_ascii=False, indent=0) + "\n",
             encoding="utf-8",
