@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Lightweight Single-Pass HTTP Fetcher dengan proteksi SSRF & circuit-breaker per host."""
+
 from __future__ import annotations
 
 import gzip
@@ -40,7 +41,13 @@ def _is_private_or_reserved_host(host: str) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(h)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+        )
     except ValueError:
         pass
     try:
@@ -48,7 +55,13 @@ def _is_private_or_reserved_host(host: str) -> bool:
         for info in infos[:4]:
             addr = info[4][0]
             ip = ipaddress.ip_address(addr)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+            ):
                 return True
     except Exception:
         return False
@@ -138,14 +151,22 @@ class SimpleHttpClient:
         for ctx_ssl in (None, self._ssl_lax):
             try:
                 opener = (
-                    urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx_ssl))
+                    urllib.request.build_opener(
+                        urllib.request.HTTPSHandler(context=ctx_ssl)
+                    )
                     if ctx_ssl is not None
                     else urllib.request.build_opener()
                 )
                 with opener.open(req, timeout=eff_timeout) as resp:
                     final_url = resp.geturl() or url
-                    final_host = (urllib.parse.urlparse(final_url).hostname or "").lower()
-                    if final_host and final_host != host and _is_private_or_reserved_host(final_host):
+                    final_host = (
+                        urllib.parse.urlparse(final_url).hostname or ""
+                    ).lower()
+                    if (
+                        final_host
+                        and final_host != host
+                        and _is_private_or_reserved_host(final_host)
+                    ):
                         return FetchResponse(False, "ssrf", 0, final_url, "")
 
                     status = getattr(resp, "status", 200)
@@ -170,9 +191,19 @@ class SimpleHttpClient:
                     return FetchResponse(False, "blocked", code, url, "")
                 self._record_host(host, False)
                 return FetchResponse(False, "transient", code, url, "")
-            except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as e:
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                OSError,
+                ValueError,
+                http.client.HTTPException,
+            ) as e:
                 reason_str = str(getattr(e, "reason", e)).lower()
-                if "name or service not known" in reason_str or "nodename nor servname" in reason_str or "getaddrinfo" in reason_str:
+                if (
+                    "name or service not known" in reason_str
+                    or "nodename nor servname" in reason_str
+                    or "getaddrinfo" in reason_str
+                ):
                     self._record_host(host, False)
                     return FetchResponse(False, "gone", 0, url, "")
                 self._record_host(host, False)

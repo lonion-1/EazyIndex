@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Manajemen state JSONL append-only, cache veto entitas legal, & ekspor kandidat kaya ke Radar (Tier 2)."""
+
 from __future__ import annotations
 
 import gzip
@@ -212,7 +213,12 @@ class IndexerState:
                 }
             return
 
-        self.seen[dom] = {"k": "reject", "t": ts, "s": verdict.illegal_score, "l": verdict.legal_score}
+        self.seen[dom] = {
+            "k": "reject",
+            "t": ts,
+            "s": verdict.illegal_score,
+            "l": verdict.legal_score,
+        }
         self.candidates.pop(dom, None)
         self.review.pop(dom, None)
 
@@ -229,7 +235,11 @@ class IndexerState:
             self.frontier = dict(keep)
 
         if dry:
-            return {"candidates": len(self.candidates), "review": len(self.review), "vetoed": len(self.vetoed)}
+            return {
+                "candidates": len(self.candidates),
+                "review": len(self.review),
+                "vetoed": len(self.vetoed),
+            }
 
         write_jsonl_atomic(
             CACHE_DIR / "frontier.jsonl",
@@ -245,13 +255,19 @@ class IndexerState:
             if m.get("k") in ("ok", "review"):
                 ok_rows.append({"d": d, **m})
             else:
-                trash_rows.append({"d": d, "k": m.get("k", "reject"), "t": m.get("t", 0)})
+                trash_rows.append(
+                    {"d": d, "k": m.get("k", "reject"), "t": m.get("t", 0)}
+                )
 
         seen_path = CACHE_DIR / "seen.jsonl"
         if _line_count(seen_path) > 35_000:
             write_jsonl_atomic(
                 seen_path,
-                [{"d": d, **m} for d, m in sorted(self.seen.items()) if m.get("k") in ("ok", "review")],
+                [
+                    {"d": d, **m}
+                    for d, m in sorted(self.seen.items())
+                    if m.get("k") in ("ok", "review")
+                ],
             )
         else:
             append_jsonl(seen_path, ok_rows)
@@ -271,19 +287,32 @@ class IndexerState:
 
         q_path = CACHE_DIR / "queries.jsonl"
         if _line_count(q_path) > len(self.qdone) + 5_000:
-            write_jsonl_atomic(q_path, [{"q": q, "t": t} for q, t in sorted(self.qdone.items())])
+            write_jsonl_atomic(
+                q_path, [{"q": q, "t": t} for q, t in sorted(self.qdone.items())]
+            )
         elif self._dirty_qdone:
-            append_jsonl(q_path, [{"q": q, "t": self.qdone[q]} for q in sorted(self._dirty_qdone) if q in self.qdone])
+            append_jsonl(
+                q_path,
+                [
+                    {"q": q, "t": self.qdone[q]}
+                    for q in sorted(self._dirty_qdone)
+                    if q in self.qdone
+                ],
+            )
 
         CAND_DIR.mkdir(parents=True, exist_ok=True)
         export_max = int(R.get("export_max", 40000))
 
         clean_cands = {
-            d: r for d, r in self.candidates.items()
+            d: r
+            for d, r in self.candidates.items()
             if not is_subdomain_of(d, self.cfg.allowlist) and d not in self.vetoed
         }
         sorted_cands = dict(
-            sorted(clean_cands.items(), key=lambda kv: (-kv[1].get("s", 0), -kv[1].get("last", 0)))[:export_max]
+            sorted(
+                clean_cands.items(),
+                key=lambda kv: (-kv[1].get("s", 0), -kv[1].get("last", 0)),
+            )[:export_max]
         )
 
         by_cat: dict[str, list[tuple[str, dict]]] = {}
@@ -312,13 +341,31 @@ class IndexerState:
             if p.stem not in ("index", "review") and p.stem not in by_cat:
                 p.unlink()
 
-        write_jsonl_atomic(CAND_DIR / "index.jsonl", [{"d": d, **sorted_cands[d]} for d in sorted(sorted_cands)])
+        write_jsonl_atomic(
+            CAND_DIR / "index.jsonl",
+            [{"d": d, **sorted_cands[d]} for d in sorted(sorted_cands)],
+        )
 
         clean_rev = {
-            d: r for d, r in self.review.items()
-            if d not in sorted_cands and d not in self.vetoed and not is_subdomain_of(d, self.cfg.allowlist)
+            d: r
+            for d, r in self.review.items()
+            if d not in sorted_cands
+            and d not in self.vetoed
+            and not is_subdomain_of(d, self.cfg.allowlist)
         }
-        sorted_rev = dict(sorted(clean_rev.items(), key=lambda kv: (-kv[1].get("s", 0), -kv[1].get("last", 0)))[:10000])
-        write_jsonl_atomic(CAND_DIR / "review.jsonl", [{"d": d, **sorted_rev[d]} for d in sorted(sorted_rev)])
+        sorted_rev = dict(
+            sorted(
+                clean_rev.items(),
+                key=lambda kv: (-kv[1].get("s", 0), -kv[1].get("last", 0)),
+            )[:10000]
+        )
+        write_jsonl_atomic(
+            CAND_DIR / "review.jsonl",
+            [{"d": d, **sorted_rev[d]} for d in sorted(sorted_rev)],
+        )
 
-        return {"candidates": len(sorted_cands), "review": len(sorted_rev), "vetoed": len(self.vetoed)}
+        return {
+            "candidates": len(sorted_cands),
+            "review": len(sorted_rev),
+            "vetoed": len(self.vetoed),
+        }

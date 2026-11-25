@@ -4,6 +4,7 @@
 - Menimbang Bukti Legal (RS, toko, berita, kampus, platform resmi) vs Bukti Ilegal across 4 pilar.
 - Mendukung Adaptive +1 Sample Page Probe saat halaman depan disamarkan atau meragukan.
 """
+
 from __future__ import annotations
 
 import re
@@ -11,7 +12,13 @@ import urllib.parse
 
 from ..config_loader import CategoryRule, IndexerConfig
 from ..models import CategoryScore, GateVerdict, LegalAssessment, PageZones
-from ..text_utils import deobfuscate, extract_safe_domain, is_subdomain_of, norm_space, registrable_domain
+from ..text_utils import (
+    deobfuscate,
+    extract_safe_domain,
+    is_subdomain_of,
+    norm_space,
+    registrable_domain,
+)
 
 RE_CORP_ENTITY = re.compile(
     r"©\s*(?:19|20)\d\d\s+[A-Z][\w&.,\- ]{2,45}|"
@@ -23,7 +30,7 @@ RE_PHONE_OR_ADDR = re.compile(
     r"\b(?:1-800|0800|021|031|022|024|061|0274|0361)[-\s]?\d{3,4}[-\s]?\d{3,4}\b|"
     r"\b(?:jl\.|jalan)\s+[a-z0-9.\s]{4,35}(?:no\.|nomor|rt|rw|kota|kabupaten|jakarta|bandung|surabaya)"
     r")",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -41,16 +48,22 @@ def _merge_zones(primary: PageZones, secondary: PageZones) -> PageZones:
         raw_html=primary.raw_html,
         jsonld_types=primary.jsonld_types | secondary.jsonld_types,
         nav_links=list(dict.fromkeys(primary.nav_links + secondary.nav_links)),
-        internal_links=list(dict.fromkeys(primary.internal_links + secondary.internal_links)),
+        internal_links=list(
+            dict.fromkeys(primary.internal_links + secondary.internal_links)
+        ),
         outbound_links=primary.outbound_links + secondary.outbound_links,
         iframes=list(dict.fromkeys(primary.iframes + secondary.iframes)),
         has_password_input=primary.has_password_input or secondary.has_password_input,
         form_text=norm_space(f"{primary.form_text} {secondary.form_text}")[:4000],
-        script_markers=norm_space(f"{primary.script_markers} {secondary.script_markers}")[:8000],
+        script_markers=norm_space(
+            f"{primary.script_markers} {secondary.script_markers}"
+        )[:8000],
     )
 
 
-def evaluate_legal(cfg: IndexerConfig, domain: str, zones: PageZones) -> LegalAssessment:
+def evaluate_legal(
+    cfg: IndexerConfig, domain: str, zones: PageZones
+) -> LegalAssessment:
     """Hitung bukti bahwa situs ini adalah entitas dunia nyata yang sah (Legal)."""
     lcfg = cfg.legal
     res = LegalAssessment()
@@ -67,7 +80,9 @@ def evaluate_legal(cfg: IndexerConfig, domain: str, zones: PageZones) -> LegalAs
 
     full_low = zones.full_text.lower()
     if lcfg.re_news_reporting:
-        news_hits = {m.group(0).lower() for m in lcfg.re_news_reporting.finditer(full_low)}
+        news_hits = {
+            m.group(0).lower() for m in lcfg.re_news_reporting.finditer(full_low)
+        }
         if news_hits:
             res.has_passive_news_context = True
             res.score += min(4, len(news_hits) * 2)
@@ -92,12 +107,20 @@ def evaluate_legal(cfg: IndexerConfig, domain: str, zones: PageZones) -> LegalAs
         nav_matches = sum(1 for np in prof.nav_paths if np in nav_set)
         body_matches = 0
         if prof.re_body_markers:
-            body_matches = len({m.group(0).lower() for m in prof.re_body_markers.finditer(full_low)})
+            body_matches = len(
+                {m.group(0).lower() for m in prof.re_body_markers.finditer(full_low)}
+            )
 
-        if nav_matches >= 2 or body_matches >= 2 or (nav_matches >= 1 and body_matches >= 1):
+        if (
+            nav_matches >= 2
+            or body_matches >= 2
+            or (nav_matches >= 1 and body_matches >= 1)
+        ):
             res.score += prof.weight
             res.matched_profiles.append(pname)
-            res.reasons.append(f"legal:profile_{pname}(nav={nav_matches},body={body_matches})")
+            res.reasons.append(
+                f"legal:profile_{pname}(nav={nav_matches},body={body_matches})"
+            )
 
     return res
 
@@ -116,10 +139,14 @@ def evaluate_category_pillars(
 
     # ── PILAR 1: Domain & Jejak Asal (P1_DOMAIN) ──
     p1_pts = 0
-    if rule.re_domain_hints and any(rule.re_domain_hints.search(v) for v in dom_variants):
+    if rule.re_domain_hints and any(
+        rule.re_domain_hints.search(v) for v in dom_variants
+    ):
         p1_pts += 3
         cs.reasons.append("P1:domain_hint")
-    if rule.re_mirror_patterns and any(rule.re_mirror_patterns.search(v) for v in dom_variants):
+    if rule.re_mirror_patterns and any(
+        rule.re_mirror_patterns.search(v) for v in dom_variants
+    ):
         p1_pts += 2
         cs.reasons.append("P1:mirror_pattern")
     if any(domain.endswith(tld) for tld in rule.high_risk_tlds):
@@ -133,7 +160,9 @@ def evaluate_category_pillars(
 
     # ── PILAR 2: Niat Semantik Utuh di Seluruh Halaman (P2_SEMANTIC) ──
     full_low = zones.full_text.lower()
-    cat_passive = bool(rule.re_passive_context and rule.re_passive_context.search(full_low))
+    cat_passive = bool(
+        rule.re_passive_context and rule.re_passive_context.search(full_low)
+    )
 
     if not legal.has_passive_news_context and not cat_passive and rule.re_active_intent:
         head_nav_variants = deobfuscate(f"{zones.head_text} {zones.nav_text}", 3500)
@@ -141,11 +170,15 @@ def evaluate_category_pillars(
 
         hn_hits: set[str] = set()
         for v in head_nav_variants:
-            hn_hits.update(m.group(0).lower() for m in rule.re_active_intent.finditer(v))
+            hn_hits.update(
+                m.group(0).lower() for m in rule.re_active_intent.finditer(v)
+            )
 
         main_hits: set[str] = set()
         for v in main_variants:
-            main_hits.update(m.group(0).lower() for m in rule.re_active_intent.finditer(v))
+            main_hits.update(
+                m.group(0).lower() for m in rule.re_active_intent.finditer(v)
+            )
 
         total_sem = len(hn_hits | main_hits)
         if total_sem >= 2 or (len(hn_hits) >= 1 and len(main_hits) >= 1):
@@ -158,7 +191,8 @@ def evaluate_category_pillars(
     p3_pts = 0
     if rule.re_url_paths and zones.internal_links:
         matching_paths = sum(
-            1 for u in zones.internal_links[:200]
+            1
+            for u in zones.internal_links[:200]
             if rule.re_url_paths.search(urllib.parse.urlparse(u).path)
         )
         if matching_paths >= 2:
@@ -169,14 +203,18 @@ def evaluate_category_pillars(
 
     dom_blob = f"{zones.nav_text} {zones.main_text} {zones.form_text}".lower()
     if rule.re_dom_signatures:
-        sig_hits = {m.group(0).lower() for m in rule.re_dom_signatures.finditer(dom_blob)}
+        sig_hits = {
+            m.group(0).lower() for m in rule.re_dom_signatures.finditer(dom_blob)
+        }
         if len(sig_hits) >= 2:
             p3_pts += min(4, len(sig_hits))
             cs.reasons.append(f"P3:dom_sigs({len(sig_hits)})")
 
     ext_iframes = [
-        src for src in zones.iframes
-        if registrable_domain(urllib.parse.urlparse(src).hostname or "", cfg.multi_tlds) not in ("", domain)
+        src
+        for src in zones.iframes
+        if registrable_domain(urllib.parse.urlparse(src).hostname or "", cfg.multi_tlds)
+        not in ("", domain)
     ]
     if rule.name in ("film", "porn") and ext_iframes:
         p3_pts += 2
@@ -202,13 +240,18 @@ def evaluate_category_pillars(
     banner_ads = 0
     suspect_out = 0
     for out_url, anchor_ctx, has_img in zones.outbound_links[:250]:
-        out_dom = registrable_domain(urllib.parse.urlparse(out_url).hostname or "", cfg.multi_tlds)
+        out_dom = registrable_domain(
+            urllib.parse.urlparse(out_url).hostname or "", cfg.multi_tlds
+        )
         if not out_dom or is_subdomain_of(out_dom, cfg.allowlist):
             continue
         blob_out = f"{out_dom} {anchor_ctx}".lower()
-        if rule.re_suspect_outbound and rule.re_suspect_outbound.search(blob_out):
-            suspect_out += 1
-        elif cfg.re_any_illegal_domain and cfg.re_any_illegal_domain.search(out_dom):
+        if (
+            rule.re_suspect_outbound
+            and rule.re_suspect_outbound.search(blob_out)
+            or cfg.re_any_illegal_domain
+            and cfg.re_any_illegal_domain.search(out_dom)
+        ):
             suspect_out += 1
         if has_img and rule.re_ad_markers and rule.re_ad_markers.search(blob_out):
             banner_ads += 1
@@ -253,11 +296,15 @@ def pick_adaptive_probe_url(cfg: IndexerConfig, domain: str, zones: PageZones) -
     return ""
 
 
-def _collect_outbound_domains(cfg: IndexerConfig, domain: str, zones: PageZones) -> list[str]:
+def _collect_outbound_domains(
+    cfg: IndexerConfig, domain: str, zones: PageZones
+) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for out_url, _, _ in zones.outbound_links:
-        d = extract_safe_domain(out_url, cfg.multi_tlds, cfg.allowlist, cfg.legal.institutional_tlds)
+        d = extract_safe_domain(
+            out_url, cfg.multi_tlds, cfg.allowlist, cfg.legal.institutional_tlds
+        )
         if d and d != domain and d not in seen:
             seen.add(d)
             out.append(d)
@@ -275,24 +322,37 @@ def decide_gate_verdict(
     probed_url: str = "",
 ) -> GateVerdict:
     """Jalankan keputusan akhir Contrastive 4-Pillar Gatekeeper."""
-    zones = _merge_zones(landing_zones, secondary_zones) if secondary_zones is not None else landing_zones
+    zones = (
+        _merge_zones(landing_zones, secondary_zones)
+        if secondary_zones is not None
+        else landing_zones
+    )
     legal = evaluate_legal(cfg, domain, zones)
 
     best_cs: CategoryScore | None = None
     best_rule: CategoryRule | None = None
 
     for cname, rule in cfg.categories.items():
-        cs = evaluate_category_pillars(cfg, domain, zones, legal, rule, hint_cat=hint_cat)
-        if best_cs is None or (len(cs.pillars_hit), cs.illegal_score) > (len(best_cs.pillars_hit), best_cs.illegal_score):
+        cs = evaluate_category_pillars(
+            cfg, domain, zones, legal, rule, hint_cat=hint_cat
+        )
+        if best_cs is None or (len(cs.pillars_hit), cs.illegal_score) > (
+            len(best_cs.pillars_hit),
+            best_cs.illegal_score,
+        ):
             best_cs = cs
             best_rule = rule
 
     assert best_cs is not None and best_rule is not None
     out_doms = _collect_outbound_domains(cfg, domain, zones)
 
-    has_strong_anatomy = "P3_ANATOMY" in best_cs.pillars_hit and best_cs.illegal_score >= 9
+    has_strong_anatomy = (
+        "P3_ANATOMY" in best_cs.pillars_hit and best_cs.illegal_score >= 9
+    )
 
-    if legal.is_institutional_tld or (legal.score >= best_rule.veto_legal_threshold and not has_strong_anatomy):
+    if legal.is_institutional_tld or (
+        legal.score >= best_rule.veto_legal_threshold and not has_strong_anatomy
+    ):
         return GateVerdict(
             decision="VETO_LEGAL",
             domain=domain,
@@ -328,7 +388,11 @@ def decide_gate_verdict(
             title=zones.title,
         )
 
-    if len(best_cs.pillars_hit) >= 2 and best_cs.illegal_score >= 5 and legal.score < best_rule.veto_legal_threshold:
+    if (
+        len(best_cs.pillars_hit) >= 2
+        and best_cs.illegal_score >= 5
+        and legal.score < best_rule.veto_legal_threshold
+    ):
         return GateVerdict(
             decision="REVIEW",
             domain=domain,
@@ -360,7 +424,9 @@ def decide_gate_verdict(
     )
 
 
-def needs_adaptive_probe(cfg: IndexerConfig, domain: str, landing_zones: PageZones, hint_cat: str = "") -> str:
+def needs_adaptive_probe(
+    cfg: IndexerConfig, domain: str, landing_zones: PageZones, hint_cat: str = ""
+) -> str:
     """Cek apakah halaman utama berada di zona abu-abu sehingga perlu mengambil +1 halaman sampel."""
     if not bool(cfg.run.get("adaptive_probe", True)):
         return ""

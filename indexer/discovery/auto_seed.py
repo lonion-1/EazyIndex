@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pemanen saran kata kunci (multi-provider autocomplete) -> langsung masuk ke feed_cache.py."""
+
 from __future__ import annotations
 
 import json
@@ -24,10 +25,13 @@ USER_AGENTS = [
 ]
 
 RE_THAI = re.compile(r"[\u0E00-\u0E7F]")
-RE_VIET = re.compile(r"[ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]", re.I)
+RE_VIET = re.compile(
+    r"[ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]",
+    re.IGNORECASE,
+)
 RE_JP = re.compile(r"[\u3040-\u30FF\u4E00-\u9FAF]")
 RE_KR = re.compile(r"[\uAC00-\uD7AF]")
-RE_JSONP = re.compile(r"^[a-zA-Z0-9_$.]+\((.*)\)\s*;?\s*$", re.S)
+RE_JSONP = re.compile(r"^[a-zA-Z0-9_$.]+\((.*)\)\s*;?\s*$", re.DOTALL)
 
 DDG_KL_MAP: dict[tuple[str, str], str] = {
     ("id", "id"): "id-id",
@@ -74,7 +78,11 @@ def _build_probe_query(seed: str, cat: str, year: str) -> str:
     mod = random.choice(mods).replace("{year}", year)
     if mod in seed.lower():
         return seed
-    return f"{mod} {seed}" if mod in ("link", "login", "daftar", "nonton", "baca") else f"{seed} {mod}"
+    return (
+        f"{mod} {seed}"
+        if mod in ("link", "login", "daftar", "nonton", "baca")
+        else f"{seed} {mod}"
+    )
 
 
 def _choose_source(gl: str, disabled: set[str]) -> str | None:
@@ -133,10 +141,18 @@ def fetch_suggestions(q_query: str, hl: str, gl: str, source: str) -> list[str]:
             return [s for s in data[1] if isinstance(s, str)]
     elif source == "ddg":
         if isinstance(data, list):
-            return [item["phrase"] for item in data if isinstance(item, dict) and isinstance(item.get("phrase"), str)]
+            return [
+                item["phrase"]
+                for item in data
+                if isinstance(item, dict) and isinstance(item.get("phrase"), str)
+            ]
     elif source == "yahoo_jp":
         if isinstance(data, dict) and isinstance(data.get("r"), list):
-            return [item["k"] for item in data["r"] if isinstance(item, dict) and isinstance(item.get("k"), str)]
+            return [
+                item["k"]
+                for item in data["r"]
+                if isinstance(item, dict) and isinstance(item.get("k"), str)
+            ]
     return []
 
 
@@ -163,13 +179,23 @@ def harvest_autocomplete(
         if req_count >= max_req:
             break
         q_cfg = cfg.categories[cat].queries_cfg
-        base_seeds = list(dict.fromkeys(
-            s.strip()
-            for s in (list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", [])))
-            if s and s.strip()
-        ))
-        chained = [q for (rcat, q), row in existing_feed.items() if rcat == cat and row.get("hits", 0) > 0]
-        seed_pool = list(dict.fromkeys(base_seeds + random.sample(chained, k=min(2, len(chained)))))
+        base_seeds = list(
+            dict.fromkeys(
+                s.strip()
+                for s in (
+                    list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", []))
+                )
+                if s and s.strip()
+            )
+        )
+        chained = [
+            q
+            for (rcat, q), row in existing_feed.items()
+            if rcat == cat and row.get("hits", 0) > 0
+        ]
+        seed_pool = list(
+            dict.fromkeys(base_seeds + random.sample(chained, k=min(2, len(chained))))
+        )
         if not seed_pool:
             continue
 
@@ -189,7 +215,9 @@ def harvest_autocomplete(
                 err_by_src[source] = 0
                 for s in suggestions:
                     clean = norm_space(s).lower()
-                    if 4 <= len(clean) <= 72 and not clean.startswith(("http://", "https://")):
+                    if 4 <= len(clean) <= 72 and not clean.startswith(
+                        ("http://", "https://")
+                    ):
                         raw_candidates.append((clean, cat, f"suggest:{source}"))
                         hits_by_src[source] = hits_by_src.get(source, 0) + 1
             except ProviderBlockedError:
@@ -214,4 +242,9 @@ def harvest_autocomplete(
         except OSError:
             pass
 
-    return {"requests": req_count, "accepted": accepted, "pool": total_pool, "sources": hits_by_src}
+    return {
+        "requests": req_count,
+        "accepted": accepted,
+        "pool": total_pool,
+        "sources": hits_by_src,
+    }

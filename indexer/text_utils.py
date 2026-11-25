@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Utilitas normalisasi teks, deobfuscation (homoglyph/leet/zero-width), dan ekstraksi domain."""
+
 from __future__ import annotations
 
 import html
@@ -15,17 +16,19 @@ RE_DOMAIN_VALID = re.compile(
     r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$"
 )
 
-LEET_TRANS = str.maketrans({
-    "0": "o",
-    "1": "i",
-    "3": "e",
-    "4": "a",
-    "5": "s",
-    "7": "t",
-    "8": "b",
-    "@": "a",
-    "$": "s",
-})
+LEET_TRANS = str.maketrans(
+    {
+        "0": "o",
+        "1": "i",
+        "3": "e",
+        "4": "a",
+        "5": "s",
+        "7": "t",
+        "8": "b",
+        "@": "a",
+        "$": "s",
+    }
+)
 
 
 def norm_space(text: str) -> str:

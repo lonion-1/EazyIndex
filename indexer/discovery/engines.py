@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Router mesin pencari (SearXNG auto-discovery + HTML fallback) & pembersih redirect SERP."""
+
 from __future__ import annotations
 
 import base64
@@ -22,47 +23,149 @@ from ..text_utils import registrable_domain, strip_tags
 SEARX_SPACE_URL = "https://searx.space/data/instances.json"
 PROBE_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
 
-RE_A = re.compile(r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>', re.I)
+RE_A = re.compile(
+    r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE
+)
 RE_TAG = re.compile(r"<[^>]+>")
-RE_SNIPPET_BOUNDARY = re.compile(r"<a\b|</(?:article|li|tr|section|dd)>", re.I)
+RE_SNIPPET_BOUNDARY = re.compile(r"<a\b|</(?:article|li|tr|section|dd)>", re.IGNORECASE)
 
-ENGINE_NOISE_DOMAINS = frozenset({
-    "duckduckgo.com", "duck.com", "spreadprivacy.com",
-    "bing.com", "microsoft.com", "msn.com", "live.com",
-    "yahoo.com", "aol.com", "mojeek.com", "brave.com", "qwant.com",
-    "ecosia.org", "metager.org", "yandex.com", "yandex.ru",
-    "google.com", "gstatic.com", "googleapis.com", "googleusercontent.com",
-    "startpage.com", "searx.space", "w3.org", "schema.org", "cloudflare.com",
-})
+ENGINE_NOISE_DOMAINS = frozenset(
+    {
+        "duckduckgo.com",
+        "duck.com",
+        "spreadprivacy.com",
+        "bing.com",
+        "microsoft.com",
+        "msn.com",
+        "live.com",
+        "yahoo.com",
+        "aol.com",
+        "mojeek.com",
+        "brave.com",
+        "qwant.com",
+        "ecosia.org",
+        "metager.org",
+        "yandex.com",
+        "yandex.ru",
+        "google.com",
+        "gstatic.com",
+        "googleapis.com",
+        "googleusercontent.com",
+        "startpage.com",
+        "searx.space",
+        "w3.org",
+        "schema.org",
+        "cloudflare.com",
+    }
+)
 
-TRACKING_PARAMS = frozenset({
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id",
-    "fbclid", "gclid", "dclid", "msclkid", "yclid", "mc_cid", "mc_eid", "igshid", "si",
-})
+TRACKING_PARAMS = frozenset(
+    {
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "utm_id",
+        "fbclid",
+        "gclid",
+        "dclid",
+        "msclkid",
+        "yclid",
+        "mc_cid",
+        "mc_eid",
+        "igshid",
+        "si",
+    }
+)
 
-STATIC_ASSET_EXTS = frozenset({
-    ".css", ".js", ".mjs", ".map", ".ico", ".svg",
-    ".woff", ".woff2", ".ttf", ".eot", ".otf",
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif",
-    ".mp4", ".mp3", ".webm", ".ogg",
-})
+STATIC_ASSET_EXTS = frozenset(
+    {
+        ".css",
+        ".js",
+        ".mjs",
+        ".map",
+        ".ico",
+        ".svg",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".otf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".avif",
+        ".mp4",
+        ".mp3",
+        ".webm",
+        ".ogg",
+    }
+)
 
-JUNK_ANCHOR_TEXTS = frozenset({
-    "next", "previous", "prev", "cached", "similar", "more", "images", "videos",
-    "news", "maps", "settings", "privacy", "privacy policy", "terms",
-    "terms of service", "cookie policy", "help", "feedback", "about", "about us",
-    "contact", "advertise", "sign in", "log in", "login", "register", "sign up",
-    "berikutnya", "sebelumnya", "tembolok", "mirip", "masuk", "daftar",
-    "tentang", "bantuan", "kebijakan privasi", "syarat dan ketentuan",
-})
+JUNK_ANCHOR_TEXTS = frozenset(
+    {
+        "next",
+        "previous",
+        "prev",
+        "cached",
+        "similar",
+        "more",
+        "images",
+        "videos",
+        "news",
+        "maps",
+        "settings",
+        "privacy",
+        "privacy policy",
+        "terms",
+        "terms of service",
+        "cookie policy",
+        "help",
+        "feedback",
+        "about",
+        "about us",
+        "contact",
+        "advertise",
+        "sign in",
+        "log in",
+        "login",
+        "register",
+        "sign up",
+        "berikutnya",
+        "sebelumnya",
+        "tembolok",
+        "mirip",
+        "masuk",
+        "daftar",
+        "tentang",
+        "bantuan",
+        "kebijakan privasi",
+        "syarat dan ketentuan",
+    }
+)
 
 BLOCK_SIGNATURES = (
-    "smartcaptcha", "cf-browser-verification", "challenge-platform",
-    "just a moment...", "are you a robot", "unusual traffic",
-    "automated queries", "anomaly-modal", "anomaly.js",
-    "g-recaptcha", "h-captcha", "cf-turnstile",
-    "/sorry/index", "verify you are human", "detected unusual traffic",
-    "too many requests", "rate limit exceeded", "access denied",
+    "smartcaptcha",
+    "cf-browser-verification",
+    "challenge-platform",
+    "just a moment...",
+    "are you a robot",
+    "unusual traffic",
+    "automated queries",
+    "anomaly-modal",
+    "anomaly.js",
+    "g-recaptcha",
+    "h-captcha",
+    "cf-turnstile",
+    "/sorry/index",
+    "verify you are human",
+    "detected unusual traffic",
+    "too many requests",
+    "rate limit exceeded",
+    "access denied",
 )
 
 _DISCOVERY_LOCK = threading.Lock()
@@ -165,7 +268,9 @@ def _refresh_searx_cache_bg(
             cfile = Path(cache_path)
             try:
                 cfile.parent.mkdir(parents=True, exist_ok=True)
-                cfile.write_text(json.dumps({"ts": time.time(), "urls": verified}), encoding="utf-8")
+                cfile.write_text(
+                    json.dumps({"ts": time.time(), "urls": verified}), encoding="utf-8"
+                )
             except OSError:
                 pass
             if pool_ref is not None:
@@ -204,7 +309,11 @@ def _unwrap_once(url: str) -> str:
 
     if host.endswith("duckduckgo.com") and p.path.startswith("/l/") and "uddg" in q:
         return urllib.parse.unquote(q["uddg"][0])
-    if host.endswith("bing.com") and p.path.startswith("/ck/") and q.get("u", [""])[0].startswith("a1"):
+    if (
+        host.endswith("bing.com")
+        and p.path.startswith("/ck/")
+        and q.get("u", [""])[0].startswith("a1")
+    ):
         b = q["u"][0][2:]
         b += "=" * (-len(b) % 4)
         try:
@@ -251,7 +360,9 @@ def decode_serp_url(url: str) -> str:
         )
     else:
         clean_query = ""
-    return urllib.parse.urlunparse((p.scheme.lower(), host, p.path or "/", "", clean_query, ""))
+    return urllib.parse.urlunparse(
+        (p.scheme.lower(), host, p.path or "/", "", clean_query, "")
+    )
 
 
 def detect_serp_block(raw_html: str) -> bool:
@@ -260,10 +371,10 @@ def detect_serp_block(raw_html: str) -> bool:
 
 
 def _extract_trailing_snippet(raw_html: str, anchor_end: int, title: str) -> str:
-    chunk = raw_html[anchor_end:anchor_end + 800]
+    chunk = raw_html[anchor_end : anchor_end + 800]
     boundary = RE_SNIPPET_BOUNDARY.search(chunk)
     if boundary:
-        chunk = chunk[:boundary.start()]
+        chunk = chunk[: boundary.start()]
     txt = strip_tags(chunk)
     if not txt or txt.lower() == title.lower():
         return ""
@@ -275,7 +386,9 @@ class SearxngEngine:
         self.base = base.rstrip("/")
         self.name = "searxng@" + urllib.parse.urlparse(self.base).netloc
 
-    def search(self, http, q: str, page: int, deadline_ts: float, lang: str) -> tuple[str, list[SearchHit]]:
+    def search(
+        self, http, q: str, page: int, deadline_ts: float, lang: str
+    ) -> tuple[str, list[SearchHit]]:
         url = (
             f"{self.base}/search?q={urllib.parse.quote_plus(q)}&format=json&pageno={page}"
             f"&language={urllib.parse.quote_plus(lang or 'id')}&safesearch=0&categories=general"
@@ -324,13 +437,14 @@ class HtmlSearchEngine:
         self.multi_tlds = multi_tlds
         host = urllib.parse.urlparse(template).netloc.lower()
         self.root = registrable_domain(host, multi_tlds)
-        self.supports_paging = any(tok in template for tok in ("{page}", "{page1}", "{offset}", "{offset1}"))
+        self.supports_paging = any(
+            tok in template for tok in ("{page}", "{page1}", "{offset}", "{offset1}")
+        )
 
     def _build_url(self, q: str, page: int, lang: str) -> str:
         offset = (page - 1) * 10
         return (
-            self.template
-            .replace("{q}", urllib.parse.quote_plus(q))
+            self.template.replace("{q}", urllib.parse.quote_plus(q))
             .replace("{lang}", urllib.parse.quote_plus(lang or "id"))
             .replace("{page}", str(page))
             .replace("{page1}", str(page))
@@ -338,11 +452,18 @@ class HtmlSearchEngine:
             .replace("{offset1}", str(offset + 1))
         )
 
-    def search(self, http, q: str, page: int, deadline_ts: float, lang: str) -> tuple[str, list[SearchHit]]:
+    def search(
+        self, http, q: str, page: int, deadline_ts: float, lang: str
+    ) -> tuple[str, list[SearchHit]]:
         if page > 1 and not self.supports_paging:
             return "ok", []
 
-        r = http.get(self._build_url(q, page, lang), timeout=9.0, max_bytes=450_000, deadline_ts=deadline_ts)
+        r = http.get(
+            self._build_url(q, page, lang),
+            timeout=9.0,
+            max_bytes=450_000,
+            deadline_ts=deadline_ts,
+        )
         if not r.ok:
             return r.kind, []
         if detect_serp_block(r.text):
@@ -376,7 +497,9 @@ class HtmlSearchEngine:
 
             seen.add(u)
             snippet = _extract_trailing_snippet(r.text, m.end(), title)
-            hits.append(SearchHit(url=u, title=title, snippet=snippet, engine=self.name))
+            hits.append(
+                SearchHit(url=u, title=title, snippet=snippet, engine=self.name)
+            )
 
         return "ok", hits
 
@@ -412,16 +535,28 @@ class EnginePool:
         with self._lock:
             if not self.engines:
                 return []
-            live = [e for e in self.engines if self.cooldown_until.get(e.name, 0.0) <= now]
+            live = [
+                e for e in self.engines if self.cooldown_until.get(e.name, 0.0) <= now
+            ]
             if not live:
-                soonest = min(self.engines, key=lambda e: self.cooldown_until.get(e.name, 0.0))
+                soonest = min(
+                    self.engines, key=lambda e: self.cooldown_until.get(e.name, 0.0)
+                )
                 self.cooldown_until[soonest.name] = now + 12.0
                 return [soonest]
             self.turn += 1
             idx = self.turn % len(live)
             rotated = live[idx:] + live[:idx]
-            ready = [e for e in rotated if (now - self.last_used.get(e.name, 0.0)) >= self.soft_gap]
-            warm = [e for e in rotated if (now - self.last_used.get(e.name, 0.0)) < self.soft_gap]
+            ready = [
+                e
+                for e in rotated
+                if (now - self.last_used.get(e.name, 0.0)) >= self.soft_gap
+            ]
+            warm = [
+                e
+                for e in rotated
+                if (now - self.last_used.get(e.name, 0.0)) < self.soft_gap
+            ]
             return ready + warm
 
     def _record_failure(self, name: str, kind: str) -> None:
@@ -429,11 +564,17 @@ class EnginePool:
             self.fails[name] = self.fails.get(name, 0) + 1
             strikes = self.fails[name]
             if kind == "blocked":
-                self.cooldown_until[name] = time.monotonic() + min(600.0, 90.0 * strikes)
+                self.cooldown_until[name] = time.monotonic() + min(
+                    600.0, 90.0 * strikes
+                )
             elif strikes >= 2:
-                self.cooldown_until[name] = time.monotonic() + min(300.0, 20.0 * (2 ** (strikes - 2)))
+                self.cooldown_until[name] = time.monotonic() + min(
+                    300.0, 20.0 * (2 ** (strikes - 2))
+                )
 
-    def search(self, http, q: str, page: int, deadline_ts: float, lang: str) -> list[SearchHit]:
+    def search(
+        self, http, q: str, page: int, deadline_ts: float, lang: str
+    ) -> list[SearchHit]:
         order = self._pick_order()
         ok_empty = 0
         for e in order:
@@ -464,7 +605,9 @@ class EnginePool:
         return []
 
 
-def build_engine_pool(ec: dict, multi_tlds: frozenset[str], only: set[str] | None = None) -> EnginePool:
+def build_engine_pool(
+    ec: dict, multi_tlds: frozenset[str], only: set[str] | None = None
+) -> EnginePool:
     global _DISCOVERY_RUNNING
     engines: list = []
 
@@ -475,7 +618,11 @@ def build_engine_pool(ec: dict, multi_tlds: frozenset[str], only: set[str] | Non
 
     if want_searx:
         urls = [u.rstrip("/") for u in ec.get("searxng", []) if str(u).strip()]
-        urls += [u.strip().rstrip("/") for u in os.environ.get("SEARXNG_URL", "").split(",") if u.strip()]
+        urls += [
+            u.strip().rstrip("/")
+            for u in os.environ.get("SEARXNG_URL", "").split(",")
+            if u.strip()
+        ]
 
         if bool(ec.get("auto_discover", True)):
             cfile = Path(cache_path)

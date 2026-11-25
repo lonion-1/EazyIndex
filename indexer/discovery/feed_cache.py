@@ -5,6 +5,7 @@ Terhubung penuh dengan auto_seed, queries, dan main indexer loop:
 - Query yang menghasilkan kandidat lolos gatekeeper -> hits naik & prioritas meningkat.
 - Query yang zonk atau hanya menghasilkan situs legal ter-veto -> misses naik & terhapus permanen.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,10 +28,12 @@ MAX_ZONK_NEW = 2
 MAX_ZONK_PROVEN = 3
 MIN_REUSE_HOURS = 6
 
-RE_LOOKS_LIKE_DOMAIN = re.compile(r"^(?:https?://)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/.*)?$", re.I)
+RE_LOOKS_LIKE_DOMAIN = re.compile(
+    r"^(?:https?://)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/.*)?$", re.IGNORECASE
+)
 RE_INTENT_BOOST = re.compile(
     r"\b(?:login|daftar|link|alternatif|rtp|gacor|maxwin|slot|togel|sub\s*indo|nonton|baca|stream|download|terbaru|gratis|vip)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -39,7 +42,13 @@ def _norm_q(q: str) -> str:
 
 
 def _token_signature(q: str) -> str:
-    toks = sorted(set(re.findall(r"[a-z0-9\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FAF\uAC00-\uD7AF]+", q)))
+    toks = sorted(
+        set(
+            re.findall(
+                r"[a-z0-9\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FAF\uAC00-\uD7AF]+", q
+            )
+        )
+    )
     return " ".join(toks) if toks else q
 
 
@@ -51,14 +60,18 @@ def score_query(cfg: IndexerConfig, q: str, cat: str, src: str) -> int:
         return 0
 
     variants = deobfuscate(q, 200)
-    if cfg.legal.re_news_reporting and any(cfg.legal.re_news_reporting.search(v) for v in variants):
+    if cfg.legal.re_news_reporting and any(
+        cfg.legal.re_news_reporting.search(v) for v in variants
+    ):
         return 0
 
     rule = cfg.categories.get(cat)
     if rule is None:
         return 0
 
-    if rule.re_passive_context and any(rule.re_passive_context.search(v) for v in variants):
+    if rule.re_passive_context and any(
+        rule.re_passive_context.search(v) for v in variants
+    ):
         return 0
 
     pts = 1 if "suggest" in src else 2

@@ -3,6 +3,7 @@
 """Pembaca & validator konfigurasi TOML modular (indexer.toml + legal_profiles.toml + categories/*.toml).
 Mendukung tomllib (Python 3.11+), tomli, serta fallback parser TOML murni tanpa dependensi eksternal.
 """
+
 from __future__ import annotations
 
 import ast
@@ -59,7 +60,9 @@ def _parse_toml_scalar(val: str):
         return True
     if v == "false":
         return False
-    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+    if (v.startswith('"') and v.endswith('"')) or (
+        v.startswith("'") and v.endswith("'")
+    ):
         return ast.literal_eval(v)
     if re.fullmatch(r"[+-]?\d+", v):
         return int(v)
@@ -116,7 +119,11 @@ def _parse_toml_fallback(raw_text: str) -> dict:
         if not line:
             continue
         if line.startswith("[") and line.endswith("]"):
-            sec_path = [p.strip().strip('"').strip("'") for p in line[1:-1].split(".") if p.strip()]
+            sec_path = [
+                p.strip().strip('"').strip("'")
+                for p in line[1:-1].split(".")
+                if p.strip()
+            ]
             cur = root
             for part in sec_path:
                 cur = cur.setdefault(part, {})
@@ -140,13 +147,15 @@ def _parse_toml_fallback(raw_text: str) -> dict:
     return root
 
 
-def _compile_literals(words: list[str], word_boundary: bool = True) -> re.Pattern | None:
+def _compile_literals(
+    words: list[str], word_boundary: bool = True
+) -> re.Pattern | None:
     cleaned = [re.escape(w.strip().lower()) for w in (words or []) if w and w.strip()]
     if not cleaned:
         return None
     joined = "|".join(sorted(set(cleaned), key=len, reverse=True))
     pat = f"(?<!\\w)(?:{joined})(?!\\w)" if word_boundary else f"(?:{joined})"
-    return re.compile(pat, re.I)
+    return re.compile(pat, re.IGNORECASE)
 
 
 def _compile_regexes(patterns: list[str], label: str) -> re.Pattern | None:
@@ -154,7 +163,7 @@ def _compile_regexes(patterns: list[str], label: str) -> re.Pattern | None:
     if not cleaned:
         return None
     try:
-        return re.compile("(?:(?:" + ")|(?:".join(cleaned) + "))", re.I)
+        return re.compile("(?:(?:" + ")|(?:".join(cleaned) + "))", re.IGNORECASE)
     except re.error as e:
         raise ConfigError(f"Regex tidak valid di {label}: {e}") from e
 
@@ -238,22 +247,52 @@ def load_indexer_config(config_dir: Path | None = None) -> IndexerConfig:
     eng_cfg = dict(main_raw.get("engines") or {})
     dom_cfg = dict(main_raw.get("domain_rules") or {})
 
-    multi_tlds = frozenset(x.strip().lower().lstrip(".") for x in dom_cfg.get("multi_tlds", []) if x.strip())
-    allowlist = frozenset(x.strip().lower().removeprefix("www.") for x in dom_cfg.get("allowlist_domains", []) if x.strip())
-    shorteners = frozenset(x.strip().lower().removeprefix("www.") for x in dom_cfg.get("shorteners", []) if x.strip())
-    parked_hints = tuple(x.strip().lower() for x in dom_cfg.get("parked_hints", []) if x.strip())
-    mirror_templates = tuple(x.strip() for x in dom_cfg.get("mirror_templates", []) if x.strip())
+    multi_tlds = frozenset(
+        x.strip().lower().lstrip(".")
+        for x in dom_cfg.get("multi_tlds", [])
+        if x.strip()
+    )
+    allowlist = frozenset(
+        x.strip().lower().removeprefix("www.")
+        for x in dom_cfg.get("allowlist_domains", [])
+        if x.strip()
+    )
+    shorteners = frozenset(
+        x.strip().lower().removeprefix("www.")
+        for x in dom_cfg.get("shorteners", [])
+        if x.strip()
+    )
+    parked_hints = tuple(
+        x.strip().lower() for x in dom_cfg.get("parked_hints", []) if x.strip()
+    )
+    mirror_templates = tuple(
+        x.strip() for x in dom_cfg.get("mirror_templates", []) if x.strip()
+    )
 
     gen_legal = legal_raw.get("general") or {}
-    inst_tlds = tuple(x.strip().lower() for x in gen_legal.get("institutional_tlds", []) if x.strip())
-    jsonld_types = frozenset(x.strip() for x in gen_legal.get("jsonld_benign_types", []) if x.strip())
-    auth_doms = frozenset(x.strip().lower() for x in gen_legal.get("authority_domains", []) if x.strip())
-    re_news = _compile_literals(gen_legal.get("news_reporting_markers", []), word_boundary=False)
+    inst_tlds = tuple(
+        x.strip().lower() for x in gen_legal.get("institutional_tlds", []) if x.strip()
+    )
+    jsonld_types = frozenset(
+        x.strip() for x in gen_legal.get("jsonld_benign_types", []) if x.strip()
+    )
+    auth_doms = frozenset(
+        x.strip().lower() for x in gen_legal.get("authority_domains", []) if x.strip()
+    )
+    re_news = _compile_literals(
+        gen_legal.get("news_reporting_markers", []), word_boundary=False
+    )
 
     probes = legal_raw.get("adaptive_probes") or {}
-    id_paths = tuple(x.strip().lower() for x in probes.get("identity_paths", []) if x.strip())
+    id_paths = tuple(
+        x.strip().lower() for x in probes.get("identity_paths", []) if x.strip()
+    )
     action_rx_raw = str(probes.get("action_path_regex", "")).strip()
-    re_action_path = _compile_regexes([action_rx_raw], "legal_profiles.adaptive_probes") if action_rx_raw else None
+    re_action_path = (
+        _compile_regexes([action_rx_raw], "legal_profiles.adaptive_probes")
+        if action_rx_raw
+        else None
+    )
 
     profiles: dict[str, LegalProfileRule] = {}
     for pname, pdata in (legal_raw.get("profiles") or {}).items():
@@ -263,9 +302,17 @@ def load_indexer_config(config_dir: Path | None = None) -> IndexerConfig:
             name=pname,
             label=str(pdata.get("label", pname)),
             weight=int(pdata.get("weight", 3)),
-            official_domains=frozenset(x.strip().lower().removeprefix("www.") for x in pdata.get("official_domains", []) if x.strip()),
-            nav_paths=tuple(x.strip().lower() for x in pdata.get("nav_paths", []) if x.strip()),
-            re_body_markers=_compile_literals(pdata.get("body_markers", []), word_boundary=False),
+            official_domains=frozenset(
+                x.strip().lower().removeprefix("www.")
+                for x in pdata.get("official_domains", [])
+                if x.strip()
+            ),
+            nav_paths=tuple(
+                x.strip().lower() for x in pdata.get("nav_paths", []) if x.strip()
+            ),
+            re_body_markers=_compile_literals(
+                pdata.get("body_markers", []), word_boundary=False
+            ),
         )
 
     legal_cfg = LegalConfig(
@@ -309,15 +356,31 @@ def load_indexer_config(config_dir: Path | None = None) -> IndexerConfig:
             veto_legal_threshold=int(meta.get("veto_legal_threshold", 5)),
             queries_cfg=dict(cdata.get("queries") or {}),
             re_domain_hints=_compile_literals(hints, word_boundary=False),
-            high_risk_tlds=tuple(x.strip().lower() for x in p_dom.get("high_risk_tlds", []) if x.strip()),
-            re_mirror_patterns=_compile_regexes(p_dom.get("mirror_patterns", []), f"{cname}.mirror_patterns"),
-            re_active_intent=_compile_literals(p_sem.get("active_intent", []), word_boundary=False),
-            re_passive_context=_compile_literals(p_sem.get("passive_context", []), word_boundary=False),
-            re_url_paths=_compile_regexes(p_ana.get("url_path_patterns", []), f"{cname}.url_path_patterns"),
-            re_dom_signatures=_compile_literals(p_ana.get("dom_signatures", []), word_boundary=False),
-            re_ad_markers=_compile_literals(p_ana.get("ad_network_markers", []), word_boundary=False),
+            high_risk_tlds=tuple(
+                x.strip().lower() for x in p_dom.get("high_risk_tlds", []) if x.strip()
+            ),
+            re_mirror_patterns=_compile_regexes(
+                p_dom.get("mirror_patterns", []), f"{cname}.mirror_patterns"
+            ),
+            re_active_intent=_compile_literals(
+                p_sem.get("active_intent", []), word_boundary=False
+            ),
+            re_passive_context=_compile_literals(
+                p_sem.get("passive_context", []), word_boundary=False
+            ),
+            re_url_paths=_compile_regexes(
+                p_ana.get("url_path_patterns", []), f"{cname}.url_path_patterns"
+            ),
+            re_dom_signatures=_compile_literals(
+                p_ana.get("dom_signatures", []), word_boundary=False
+            ),
+            re_ad_markers=_compile_literals(
+                p_ana.get("ad_network_markers", []), word_boundary=False
+            ),
             outbound_ratio_threshold=float(p_eco.get("outbound_ratio_threshold", 0.25)),
-            re_suspect_outbound=_compile_literals(p_eco.get("suspect_outbound_hints", []), word_boundary=False),
+            re_suspect_outbound=_compile_literals(
+                p_eco.get("suspect_outbound_hints", []), word_boundary=False
+            ),
         )
 
     if not categories:

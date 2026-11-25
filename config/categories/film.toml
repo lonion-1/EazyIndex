@@ -28,7 +28,7 @@ domain_hints = [
   "nonton", "drakor", "anime", "samehadaku", "otakudesu", "oploverz", "kusonime", "movie",
 ]
 high_risk_tlds = [".xyz", ".site", ".online", ".top", ".icu", ".vip", ".fun", ".cfd", ".sbs", ".cam", ".mov"]
-mirror_patterns = ["(?:lk21|idlix|rebahin|nonton|anime)[a-z0-9-]*", "(?:21|xxi|indo|tv|hd|vip)\d*$"]
+mirror_patterns = ["(?:lk21|idlix|rebahin|nonton|anime)[a-z0-9-]*", '(?:21|xxi|indo|tv|hd|vip)\d*$']
 
 [pillar_semantics]
 active_intent = [
@@ -45,7 +45,7 @@ passive_context = [
 url_path_patterns = [
   "/(?:nonton|watch|movie|film|episode|ep|anime|series)/[a-z0-9-]+",
   "/quality/(?:hd|bluray|webrip|cam)",
-  "/tahun/20\d\d",
+  '/tahun/20\d\d',
 ]
 dom_signatures = [
   "server 1", "server 2", "ganti player", "pilih server", "resolusi 1080p",

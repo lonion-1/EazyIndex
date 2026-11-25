@@ -28,7 +28,7 @@ domain_hints = [
   "xnxx", "pornhub", "redtube", "youporn", "brazzers", "nsfw", "18plus", "colmek", "memek",
 ]
 high_risk_tlds = [".xxx", ".porn", ".adult", ".sex", ".xyz", ".site", ".top", ".icu", ".vip", ".cfd"]
-mirror_patterns = ["(?:bokep|jav|hentai|porn|xxx)[a-z0-9-]*", "(?:69|18|xxx|jav|vip)\d*$"]
+mirror_patterns = ["(?:bokep|jav|hentai|porn|xxx)[a-z0-9-]*", '(?:69|18|xxx|jav|vip)\d*$']
 
 [pillar_semantics]
 active_intent = [

@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Generator query terpadu: kombinasi TOML statis + feed_cache adaptif + perburuan mirror."""
+
 from __future__ import annotations
 
 import random
@@ -13,7 +14,9 @@ from .feed_cache import pop_queries_for_indexing
 DAY = 86400
 
 
-def build_static_queries(cfg: IndexerConfig, ts: float, cats: set[str] | None = None) -> list[tuple[str, str]]:
+def build_static_queries(
+    cfg: IndexerConfig, ts: float, cats: set[str] | None = None
+) -> list[tuple[str, str]]:
     year = str(time.gmtime(ts).tm_year)
     out: list[tuple[str, str]] = []
     for cat, rule in cfg.categories.items():
@@ -29,7 +32,9 @@ def build_static_queries(cfg: IndexerConfig, ts: float, cats: set[str] | None = 
             t_str = str(tpl)
             if "{t}" in t_str:
                 for f in fillers:
-                    nq = norm_space(t_str.replace("{t}", f).replace("{year}", year)).lower()
+                    nq = norm_space(
+                        t_str.replace("{t}", f).replace("{year}", year)
+                    ).lower()
                     if nq:
                         out.append((cat, nq))
             else:
@@ -56,7 +61,9 @@ def pick_run_queries(
     per_cat_feed = max(2, (total_n // 2) // len(active_cats))
     feed_by_cat: dict[str, list[tuple[str, str]]] = {}
     for cat in active_cats:
-        popped = pop_queries_for_indexing(cat, limit=per_cat_feed, cfg=cfg, mark_used=True, dry=dry)
+        popped = pop_queries_for_indexing(
+            cat, limit=per_cat_feed, cfg=cfg, mark_used=True, dry=dry
+        )
         feed_by_cat[cat] = [(cat, q) for q in popped]
 
     static_all = build_static_queries(cfg, ts, cats)
@@ -87,7 +94,9 @@ def pick_run_queries(
         out.append(item)
         return True
 
-    while len(out) < total_n and (any(feed_by_cat.values()) or any(fresh_by_cat.values())):
+    while len(out) < total_n and (
+        any(feed_by_cat.values()) or any(fresh_by_cat.values())
+    ):
         for cat in active_cats:
             if len(out) >= total_n:
                 break
@@ -135,7 +144,11 @@ def build_mirror_queries(
             seen.add(item[1])
             dedup.append(item)
 
-    fresh = [it for it in dedup if it[1] not in done or (ts - float(done.get(it[1], 0))) > repeat_days * DAY]
+    fresh = [
+        it
+        for it in dedup
+        if it[1] not in done or (ts - float(done.get(it[1], 0))) > repeat_days * DAY
+    ]
     stale = [it for it in dedup if it not in fresh]
     random.shuffle(fresh)
     stale.sort(key=lambda it: float(done.get(it[1], 0)))
