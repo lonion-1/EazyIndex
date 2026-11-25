@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1/WhaleGuard)
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pintu masuk Web Indexer. Logika ada di indexer/."""
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _indexer.main import main
+from indexer.main import main
 
 if __name__ == "__main__":
     code = main()
