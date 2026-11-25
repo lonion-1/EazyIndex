@@ -1,7 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Archive Manager (Gudang Beku & Zombie Resurrector):
-- Simpan domain mati/kering ke Archive/<cat>.jsonl.gz secara deterministik (mtime=0).
+- Simpan & baca domain dalam format .jsonl maupun Archive/<cat>.jsonl.gz (deterministik, mtime=0).
 - Gabungkan riwayat skor/sumber tanpa menimpa metadata lama & bersihkan domain allowlist.
 - Bangkitkan kembali (resurrect) domain di Archive/ dengan exponential backoff anti-ping-pong.
 """
@@ -9,22 +9,25 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import gzip
 import json
 import os
 import random
 import re
+import socket
 import sys
+import time
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-try:
-    from indexer.main import ROOT, Deadline, dns_many, log, now
-except ModuleNotFoundError:
+_HERE = Path(__file__).resolve().parent
+ROOT = _HERE.parent if _HERE.name == "scripts" else _HERE
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 ARCHIVE_DIR = ROOT / "Archive"
+ALLOWLIST_FILE = ROOT / "allowlist.txt"
 
 DAY = 86400
 DEFAULT_DORMANT_DAYS = 7
@@ -33,6 +36,61 @@ DEFAULT_MAX_RESURRECT = 4
 RE_VALID_DOMAIN = re.compile(
     r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$"
 )
+
+
+def now() -> float:
+    return time.time()
+
+
+def log(tag: str, msg: str) -> None:
+    ts = time.strftime("%H:%M:%S", time.gmtime())
+    print(f"[{ts}] [{tag}] {msg}", flush=True)
+
+
+class Deadline:
+    def __init__(self, timeout_sec: float) -> None:
+        self._end = time.monotonic() + max(0.0, float(timeout_sec))
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self._end
+
+    def remaining(self) -> float:
+        return max(0.0, self._end - time.monotonic())
+
+
+def dns_many(
+    domains: list[str],
+    workers: int = 32,
+    per_timeout: float = 5.0,
+    deadline: Deadline | None = None,
+) -> dict[str, bool]:
+    """Resolve DNS paralel mengembalikan {domain: True/False}."""
+    results: dict[str, bool] = {}
+    if not domains:
+        return results
+
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(per_timeout)
+
+    def _probe(dom: str) -> tuple[str, bool]:
+        if deadline and deadline.expired():
+            return dom, False
+        try:
+            socket.getaddrinfo(dom, None)
+            return dom, True
+        except OSError:
+            return dom, False
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_probe, d) for d in domains]
+            for fut in concurrent.futures.as_completed(futures):
+                dom, ok = fut.result()
+                results[dom] = ok
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+
+    return results
 
 
 def _safe_cat(label: str | None) -> str:
@@ -51,18 +109,26 @@ def _clean_domain(raw: str | None) -> str:
 
 
 def _load_allowlist() -> set[str]:
-    if not ALLOWLIST_FILE.exists():
-        return set()
     out: set[str] = set()
+    for path in (ALLOWLIST_FILE, ROOT / "config" / "allowlist.txt"):
+        if not path.exists():
+            continue
+        try:
+            for line in path.read_text(
+                encoding="utf-8", errors="ignore"
+            ).splitlines():
+                s = line.split("#", 1)[0].strip()
+                dom = _clean_domain(s)
+                if dom:
+                    out.add(dom)
+        except OSError:
+            pass
     try:
-        for line in ALLOWLIST_FILE.read_text(
-            encoding="utf-8", errors="ignore"
-        ).splitlines():
-            s = line.split("#", 1)[0].strip()
-            dom = _clean_domain(s)
-            if dom:
-                out.add(dom)
-    except OSError:
+        from indexer.config_loader import load_indexer_config
+
+        cfg = load_indexer_config()
+        out.update(cfg.allowlist)
+    except Exception:
         pass
     return out
 
@@ -120,15 +186,83 @@ def _merge_record(old: dict | None, new: dict, ts: int) -> dict:
     return merged
 
 
+def read_jsonl(path: Path) -> list[dict]:
+    """Baca file .jsonl maupun .jsonl.gz menjadi list of dict."""
+    rows: list[dict] = []
+    if not path.exists():
+        return rows
+    opener = (
+        (lambda p: gzip.open(p, "rt", encoding="utf-8", errors="ignore"))
+        if path.name.endswith(".gz")
+        else (lambda p: open(p, "r", encoding="utf-8", errors="ignore"))
+    )
+    try:
+        with opener(path) as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith(("#", "!")):
+                    continue
+                try:
+                    obj = json.loads(s)
+                    if isinstance(obj, dict):
+                        rows.append(obj)
+                except ValueError:
+                    continue
+    except (OSError, EOFError, zlib.error) as e:
+        log("ARCHIVE", f"peringatan baca {path.name}: {e}")
+    return rows
+
+
+def write_jsonl(path: Path, rows: list[dict], dry: bool = False) -> None:
+    """Tulis file .jsonl atau .jsonl.gz secara atomik."""
+    if dry:
+        return
+    if not rows:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    if path.name.endswith(".gz"):
+        with (
+            open(tmp, "wb") as raw_f,
+            gzip.GzipFile(
+                filename="", mode="wb", fileobj=raw_f, compresslevel=6, mtime=0
+            ) as gz,
+        ):
+            for row in rows:
+                gz.write(
+                    (
+                        json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+                        + "\n"
+                    ).encode("utf-8")
+                )
+    else:
+        with open(tmp, "w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
+    os.replace(tmp, path)
+
+
 def read_archive_map(path: Path) -> dict[str, dict]:
-    """Baca Archive/<cat>.jsonl.gz (atau format lama *.txt.gz) -> {domain: record}."""
+    """Baca Archive/<cat>.jsonl.gz, .jsonl, atau format lama *.txt.gz -> {domain: record}."""
     out: dict[str, dict] = {}
     if not path.exists():
         return out
-    cat = _safe_cat(path.name.removesuffix(".jsonl.gz").removesuffix(".txt.gz"))
+    cat = _safe_cat(
+        path.name.removesuffix(".jsonl.gz")
+        .removesuffix(".jsonl")
+        .removesuffix(".txt.gz")
+    )
     ts = int(now())
+    opener = (
+        (lambda p: gzip.open(p, "rt", encoding="utf-8", errors="ignore"))
+        if path.name.endswith(".gz")
+        else (lambda p: open(p, "r", encoding="utf-8", errors="ignore"))
+    )
     try:
-        with gzip.open(path, "rt", encoding="utf-8", errors="ignore") as f:
+        with opener(path) as f:
             for line in f:
                 s = line.strip()
                 if not s or s.startswith(("#", "!")):
@@ -165,28 +299,9 @@ def read_archive_map(path: Path) -> dict[str, dict]:
 
 
 def write_archive_map(path: Path, records: dict[str, dict], dry: bool = False) -> None:
-    """Tulis ulang Archive/<cat>.jsonl.gz secara atomik & deterministik (mtime=0)."""
-    if dry:
-        return
-    if not records:
-        path.unlink(missing_ok=True)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Tulis ulang Archive/<cat>.jsonl.gz (atau .jsonl) secara atomik & deterministik."""
     ordered = sorted(records.values(), key=lambda r: str(r.get("d", "")))
-    tmp = path.with_name(path.name + ".tmp")
-    with (
-        open(tmp, "wb") as raw_f,
-        gzip.GzipFile(
-            filename="", mode="wb", fileobj=raw_f, compresslevel=6, mtime=0
-        ) as gz,
-    ):
-        for row in ordered:
-            gz.write(
-                (
-                    json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
-                ).encode("utf-8")
-            )
-    os.replace(tmp, path)
+    write_jsonl(path, ordered, dry=dry)
 
 
 def simpan_arsip_records(cat: str, rows: list[dict], dry: bool = False) -> int:
@@ -263,7 +378,6 @@ def _is_eligible_for_resurrect(
     archived_at = int(rec.get("archived_at") or rec.get("last") or 0)
     if archived_at <= 0:
         return True
-    # Exponential backoff: 7d -> 14d -> 28d -> 56d agar domain sinkhole tidak ping-pong
     cooldown_sec = min_dormant_days * DAY * (2 ** min(res_cnt, 4))
     return (ts - archived_at) >= cooldown_sec
 
@@ -275,13 +389,13 @@ def bangkitkan_arsip(
     min_dormant_days: int = DEFAULT_DORMANT_DAYS,
     max_resurrect: int = DEFAULT_MAX_RESURRECT,
 ) -> list[tuple[str, str, dict]]:
-    """Cek DNS sampel domain dorman lintas file Archive/ dan bangkitkan yang hidup kembali.
-    Mengembalikan list [(domain, kategori, record), ...].
-    """
+    """Cek DNS sampel domain dorman lintas file Archive/ dan bangkitkan yang hidup kembali."""
     if not ARCHIVE_DIR.exists() or max_cek <= 0:
         return []
     files = sorted(
-        list(ARCHIVE_DIR.glob("*.jsonl.gz")) + list(ARCHIVE_DIR.glob("*.txt.gz"))
+        list(ARCHIVE_DIR.glob("*.jsonl.gz"))
+        + list(ARCHIVE_DIR.glob("*.jsonl"))
+        + list(ARCHIVE_DIR.glob("*.txt.gz"))
     )
     if not files:
         return []
@@ -298,7 +412,7 @@ def bangkitkan_arsip(
         for d in [dom for dom in recs if dom in allowlist]:
             del recs[d]
             purged += 1
-        if purged > 0 or fpath.name.endswith(".txt.gz"):
+        if purged > 0 or not fpath.name.endswith(".jsonl.gz"):
             dirty_files.add(fpath)
         loaded[fpath] = recs
 
@@ -310,7 +424,6 @@ def bangkitkan_arsip(
         if elig:
             eligible_by_file[fpath] = elig
 
-    # Ambil sampel proporsional dari maksimal 3 file kategori aktif agar kategori kecil tidak terabaikan
     active_files = list(eligible_by_file.keys())
     random.shuffle(active_files)
     picked_files = active_files[:3]
@@ -324,7 +437,6 @@ def bangkitkan_arsip(
             for d in chosen:
                 sample_map[d] = fpath
 
-        # Isi sisa kuota jika ada file yang jumlah kandidatnya di bawah rata-rata
         if len(sample_map) < max_cek:
             leftover = [
                 (d, fpath)
@@ -358,7 +470,9 @@ def bangkitkan_arsip(
 
             cat = _safe_cat(
                 rec.get("cat")
-                or fpath.name.removesuffix(".jsonl.gz").removesuffix(".txt.gz")
+                or fpath.name.removesuffix(".jsonl.gz")
+                .removesuffix(".jsonl")
+                .removesuffix(".txt.gz")
             )
             res_cnt = int(rec.get("resurrect_count") or 0) + 1
             rec["cat"] = cat
@@ -377,7 +491,9 @@ def bangkitkan_arsip(
     if not dry:
         for fpath in dirty_files:
             cat = _safe_cat(
-                fpath.name.removesuffix(".jsonl.gz").removesuffix(".txt.gz")
+                fpath.name.removesuffix(".jsonl.gz")
+                .removesuffix(".jsonl")
+                .removesuffix(".txt.gz")
             )
             target_jsonl = ARCHIVE_DIR / f"{cat}.jsonl.gz"
             recs = loaded[fpath]
@@ -404,7 +520,9 @@ def compact_and_stats(do_compact: bool = False, dry: bool = False) -> None:
         log("ARCHIVE", "Folder Archive/ belum ada.")
         return
     files = sorted(
-        list(ARCHIVE_DIR.glob("*.jsonl.gz")) + list(ARCHIVE_DIR.glob("*.txt.gz"))
+        list(ARCHIVE_DIR.glob("*.jsonl.gz"))
+        + list(ARCHIVE_DIR.glob("*.jsonl"))
+        + list(ARCHIVE_DIR.glob("*.txt.gz"))
     )
     if not files:
         log("ARCHIVE", "Belum ada file arsip di Archive/.")
@@ -422,7 +540,9 @@ def compact_and_stats(do_compact: bool = False, dry: bool = False) -> None:
             del recs[d]
         if do_compact and not dry:
             cat = _safe_cat(
-                fpath.name.removesuffix(".jsonl.gz").removesuffix(".txt.gz")
+                fpath.name.removesuffix(".jsonl.gz")
+                .removesuffix(".jsonl")
+                .removesuffix(".txt.gz")
             )
             target = ARCHIVE_DIR / f"{cat}.jsonl.gz"
             write_archive_map(target, recs, dry=False)
