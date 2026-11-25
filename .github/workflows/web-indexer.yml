@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
-        run: python3 -m indexer.web_indexer --check-config
+        run: python3 -m scripts.web_indexer --check-config
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
