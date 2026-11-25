@@ -9,12 +9,17 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
-RE_WA = re.compile(r"(?:wa\.me/|api\.whatsapp\.com/send\?[^\s>]*?phone=)\+?(\d{8,15})", re.I)
-RE_TG = re.compile(r"(?:t\.me|telegram\.me)/(?!share|joinchat|s/|\+)([A-Za-z0-9_]{4,32})", re.I)
+RE_WA = re.compile(
+    r"(?:wa\.me/|api\.whatsapp\.com/send\?[^\s>]*?phone=)\+?(\d{8,15})", re.IGNORECASE
+)
+RE_TG = re.compile(
+    r"(?:t\.me|telegram\.me)/(?!share|joinchat|s/|\+)([A-Za-z0-9_]{4,32})",
+    re.IGNORECASE,
+)
 RE_PAYMENT = re.compile(
     r"(?:transfer|rekening|no\.?\s*rek|norek|a\.?n\.?)[^.\n]{0,50}?\b\d{8,16}\b|"
     r"\b(?:dana|ovo|gopay|shopeepay|linkaja)\b[^.\n]{0,30}\b08\d{8,11}\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -34,7 +39,9 @@ class SerpHit:
     category: str
 
 
-def evaluate_serp_hit(hit: SerpHit, policy, cat_cfg: dict, brands: list[dict]) -> dict | None:
+def evaluate_serp_hit(
+    hit: SerpHit, policy, cat_cfg: dict, brands: list[dict]
+) -> dict | None:
     """Saring hasil SERP sebelum disentuh crawler: kembalikan dict kandidat atau None."""
     sp = urllib.parse.urlsplit(hit.url.strip())
     raw_host = (sp.hostname or "").lower()
@@ -49,7 +56,13 @@ def evaluate_serp_hit(hit: SerpHit, policy, cat_cfg: dict, brands: list[dict]) -
     if not reg or policy.is_protected(reg) or policy.is_ignored(reg):
         return None
     if policy.is_passthrough(reg):
-        return {"kind": "passthrough", "url": hit.url, "d": reg, "cat": hit.category, "s": 4}
+        return {
+            "kind": "passthrough",
+            "url": hit.url,
+            "d": reg,
+            "cat": hit.category,
+            "s": 4,
+        }
 
     head_txt = hit.title.lower()
     body_txt = hit.snippet.lower()
@@ -71,7 +84,9 @@ def evaluate_serp_hit(hit: SerpHit, policy, cat_cfg: dict, brands: list[dict]) -
     body_id = [w for w in id_terms if w in body_txt]
     has_identity = bool(name_hits or head_id or body_id)
 
-    fn_hits = [w for w in fn_terms if w in full_txt] if (has_identity or not id_terms) else []
+    fn_hits = (
+        [w for w in fn_terms if w in full_txt] if (has_identity or not id_terms) else []
+    )
     lure_hits = [w for w in lure_terms if w in full_txt]
 
     score = 0
@@ -127,5 +142,4 @@ def evaluate_serp_hit(hit: SerpHit, policy, cat_cfg: dict, brands: list[dict]) -
         "s": score,
         "bounces": 0,
         "trail": [{"bot": "web-index", "act": "serp_pass", "note": "; ".join(reasons)}],
-      }
-  
+    }
