@@ -1,0 +1,237 @@
+name: Raccoons Service (Dropzone Router & Auto-Cleaner)
+
+on:
+  push:
+    branches: [main, master, blocker]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  racoon-service:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: pip install --quiet ruff
+
+      - name: 1. Raccoons Sortir _dropzone & Bersihkan Kode
+        run: |
+          python3 - <<'PY'
+          import ast
+          import json
+          import re
+          import shutil
+          import tomllib
+          from pathlib import Path
+
+          SKIP_DIRS = {".git", ".github", "__pycache__", ".venv", "venv", "node_modules", "_dropzone"}
+          EXTS = {".py", ".toml", ".json", ".md"}
+          moved = 0
+          fixed = 0
+          errors = []
+
+          # --- BAGIAN A: KOTAK SAMPAH PINTAR (_dropzone/) ---
+          drop_dir = Path("_dropzone")
+          if drop_dir.exists():
+              for item in sorted(drop_dir.rglob("*")):
+                  if not item.is_file() or item.name.startswith("."):
+                      continue
+                  ext = item.suffix.lower()
+                  content = item.read_text(encoding="utf-8", errors="ignore")
+                  dest = None
+
+                  if ext == ".toml":
+                      if any(k in content for k in ("[pillar_domain]", "[pillar_semantics]", "domain_hints")):
+                          dest = Path("config/categories") / item.name
+                      else:
+                          dest = Path("config") / item.name
+                  elif ext == ".py":
+                      if Path("indexer").exists() and any(k in content for k in ("Scorer", "Gate", "Extractor", "class ")):
+                          # Timpa jika nama file sudah ada di indexer/, jika belum taruh di scripts/
+                          cand_idx = Path("indexer") / item.name
+                          dest = cand_idx if cand_idx.exists() else Path("scripts") / item.name
+                      else:
+                          dest = Path("scripts") / item.name
+                  elif ext == ".txt":
+                      if "|" in content and Path("queries").exists():
+                          # Gabungkan ke queries/manual_seeds.txt
+                          target = Path("queries/manual_seeds.txt")
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          old = target.read_text(encoding="utf-8", errors="ignore") if target.exists() else ""
+                          target.write_text(old.rstrip() + "\n" + content.strip() + "\n", encoding="utf-8")
+                          print(f"[DROPZONE] {item.name} -> {target} (merged)")
+                          item.unlink()
+                          moved += 1
+                          continue
+                      elif Path("benign_pool.txt").exists():
+                          # Gabungkan domain baru ke benign_pool.txt, pisahkan komentar, & hapus duplikat
+                          target = Path("benign_pool.txt")
+                          existing_raw = target.read_text(encoding="utf-8", errors="ignore").splitlines()
+                          comments = [ln.rstrip() for ln in existing_raw if ln.strip().startswith("#")]
+                          existing_domains = {
+                              ln.strip().lower()
+                              for ln in existing_raw
+                              if ln.strip() and not ln.strip().startswith("#")
+                          }
+                          new_lines = {
+                              ln.strip().lower()
+                              for ln in content.splitlines()
+                              if ln.strip() and not ln.strip().startswith("#")
+                          }
+                          merged = sorted(existing_domains | new_lines)
+                          final_lines = comments + merged
+                          target.write_text("\n".join(final_lines) + "\n", encoding="utf-8")
+                          print(f"[DROPZONE] {item.name} -> {target} (merged)")
+                          item.unlink()
+                          moved += 1
+                          continue
+                      else:
+                          print(f"[DROPZONE SKIP] {item.name} -> format .txt tidak cocok atau file target belum ada")
+                          continue
+
+                  if dest:
+                      dest.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.move(str(item), str(dest))
+                      print(f"[DROPZONE] {item.name} -> {dest}")
+                      moved += 1
+                  else:
+                      print(f"[DROPZONE SKIP] {item.name} -> ekstensi '{ext}' belum memiliki aturan routing")
+
+              # Bersihkan sub-folder kosong di _dropzone
+              for sub in sorted(drop_dir.rglob("*"), reverse=True):
+                  if sub.is_dir() and not any(sub.iterdir()):
+                      sub.rmdir()
+
+          # --- BAGIAN B: AUTO-FIX REGEX TOML, SPASI, & CEK SINTAKS ---
+          RE_TOML_DQ_STR = re.compile(r'(?<!")"(?!""|\n)((?:[^"\\\n]|\\.)*)"(?!")')
+          VALID_TOML_ESCAPES = set('btnfr"\\uU')
+
+          def fix_toml_regex_strings(src: str) -> str:
+              def repl(m: re.Match) -> str:
+                  inner = m.group(1)
+                  if "\\" not in inner:
+                      return m.group(0)
+                  has_regex_bs = False
+                  i = 0
+                  while i < len(inner):
+                      if inner[i] == "\\":
+                          nxt = inner[i + 1] if i + 1 < len(inner) else ""
+                          if nxt not in VALID_TOML_ESCAPES:
+                              has_regex_bs = True
+                              break
+                          i += 2
+                          continue
+                      i += 1
+                  if not has_regex_bs:
+                      return m.group(0)
+                  if "'" not in inner:
+                      return f"'{inner}'"
+                  out = []
+                  i = 0
+                  while i < len(inner):
+                      if inner[i] == "\\":
+                          nxt = inner[i + 1] if i + 1 < len(inner) else ""
+                          if nxt in VALID_TOML_ESCAPES:
+                              out.append("\\" + nxt)
+                              i += 2
+                          else:
+                              out.append("\\\\")
+                              i += 1
+                      else:
+                          out.append(inner[i])
+                          i += 1
+                  return '"' + "".join(out) + '"'
+              return RE_TOML_DQ_STR.sub(repl, src)
+
+          for p in sorted(Path(".").rglob("*")):
+              if any(part in SKIP_DIRS for part in p.parts) or not p.is_file():
+                  continue
+              ext = p.suffix.lower()
+              if ext not in EXTS:
+                  continue
+
+              raw = p.read_bytes()
+              try:
+                  text = raw.decode("utf-8")
+              except UnicodeDecodeError:
+                  continue
+
+              lines = [
+                  line.rstrip(" \t\r")
+                  for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+              ]
+
+              if ext in {".py", ".toml"}:
+                  tab_w = "    " if ext == ".py" else "  "
+                  norm = []
+                  for ln in lines:
+                      lead = len(ln) - len(ln.lstrip("\t"))
+                      if lead:
+                          ln = (tab_w * lead) + ln.lstrip("\t")
+                      norm.append(ln)
+                  lines = norm
+
+              cleaned = "\n".join(lines).rstrip("\n") + "\n"
+
+              if ext == ".json":
+                  try:
+                      obj = json.loads(cleaned)
+                      cleaned = json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
+                  except Exception as e:
+                      errors.append(f"[JSON ERROR] {p}: {e}")
+
+              elif ext == ".toml":
+                  cleaned = fix_toml_regex_strings(cleaned)
+                  try:
+                      tomllib.loads(cleaned)
+                  except Exception as e:
+                      errors.append(f"[TOML ERROR] {p}: {e}")
+
+              elif ext == ".py":
+                  try:
+                      ast.parse(cleaned)
+                  except SyntaxError as e:
+                      errors.append(f"[PYTHON ERROR] {p} baris {e.lineno}: {e.msg}")
+
+              new_bytes = cleaned.encode("utf-8")
+              if new_bytes != raw:
+                  p.write_bytes(new_bytes)
+                  fixed += 1
+
+          print(f"[RACCOON] {moved} file diantar dari _dropzone | {fixed} file dirapikan. 🫡")
+          if errors:
+              print("\n".join(errors))
+              raise SystemExit(1)
+          PY
+
+      - name: 2. Raccoons Poles Kode Python dengan Ruff
+        run: |
+          ruff check --fix --exit-zero .
+          ruff format .
+
+      - name: 3. Simpan Hasil Kerja Raccoons Service
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git reset -- .github/ || true
+          if git diff --staged --quiet; then
+            echo "Semua sudah bersih dan rapi."
+            exit 0
+          fi
+          git commit -m "style: Raccoons Service clean & route [skip ci]"
+          git push
