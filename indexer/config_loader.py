@@ -21,6 +21,8 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[1]
 
+_RE_INLINE_GLOBAL_FLAG = re.compile(r"(?<!\\)(?:\\\\)*\(\?([aiLmsux]+)\)")
+
 
 class ConfigError(Exception):
     """Kesalahan struktur atau isi file konfigurasi TOML."""
@@ -158,12 +160,42 @@ def _compile_literals(
     return re.compile(pat, re.IGNORECASE)
 
 
+def _normalize_subpattern(pat: str) -> tuple[str, list[str]]:
+    """Tarik global flag (?i), (?m), (?s), dll. dari dalam sub-pola agar aman saat dibungkus (?:...)."""
+    found: list[str] = []
+
+    def _repl(m: re.Match) -> str:
+        full = m.group(0)
+        flag_chars = m.group(1)
+        prefix_bs = full[: full.index("(?")]
+        for ch in flag_chars:
+            if ch not in found:
+                found.append(ch)
+        return prefix_bs
+
+    stripped = _RE_INLINE_GLOBAL_FLAG.sub(_repl, pat)
+    return stripped, found
+
+
 def _compile_regexes(patterns: list[str], label: str) -> re.Pattern | None:
-    cleaned = [p.strip() for p in (patterns or []) if p and p.strip()]
-    if not cleaned:
+    raw_cleaned = [p.strip() for p in (patterns or []) if p and p.strip()]
+    if not raw_cleaned:
         return None
+
+    normalized_parts: list[str] = []
+    extra_flags: list[str] = []
+    for p in raw_cleaned:
+        norm_p, flags = _normalize_subpattern(p)
+        normalized_parts.append(norm_p)
+        for f in flags:
+            if f != "i" and f not in extra_flags:
+                extra_flags.append(f)
+
+    lead = f"(?{''.join(extra_flags)})" if extra_flags else ""
     try:
-        return re.compile("(?:(?:" + ")|(?:".join(cleaned) + "))", re.IGNORECASE)
+        return re.compile(
+            lead + "(?:(?:" + ")|(?:".join(normalized_parts) + "))", re.IGNORECASE
+        )
     except re.error as e:
         raise ConfigError(f"Regex tidak valid di {label}: {e}") from e
 
