@@ -65,8 +65,6 @@ jobs:
                           dest = cand_idx
                       else:
                           dest = Path("scripts") / item.name
-                      else:
-                          dest = Path("scripts") / item.name
                   elif ext == ".txt":
                       if "|" in content and Path("queries").exists():
                           target = Path("queries/manual_seeds.txt")
