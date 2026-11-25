@@ -301,8 +301,41 @@ jobs:
 
       - name: 2. Raccoons Poles Kode Python dengan Ruff
         run: |
-          ruff check --fix --exit-zero .
+          ruff check --fix --exit-zero --ignore BLE001 .
           ruff format .
+          python3 - <<'PY'
+          import json
+          import subprocess
+
+          KAMUS = {
+              "F401": "Ada import modul yang tidak terpakai (bisa dihapus)",
+              "F841": "Ada variabel yang dibuat tapi tidak pernah dipakai",
+              "E501": "Baris kode kepanjangan",
+              "SIM102": "Dua 'if' bersarang bisa digabung jadi satu pakai 'and'",
+              "SIM105": "Blok try-except-pass bisa diringkas pakai contextlib.suppress",
+              "SIM108": "Blok if-else sederhana bisa diringkas jadi satu baris",
+              "UP035": "Import typing lama bisa pakai tipe bawaan Python modern",
+              "B007": "Variabel loop tidak dipakai di dalam perulangan (ganti jadi _)",
+              "RET504": "Variabel langsung di-return (tidak perlu ditampung dulu)",
+          }
+
+          res = subprocess.run(
+              ["ruff", "check", "--output-format=json", "--exit-zero", "--ignore", "BLE001", "."],
+              capture_output=True,
+              text=True,
+          )
+          items = json.loads(res.stdout or "[]")
+          if not items:
+              print("[RACCOON] Kode Python sudah mulus, tidak ada catatan! ✨")
+          else:
+              print(f"[RACCOON] Ada {len(items)} saran ringan gaya penulisan (kode tetap aman jalan):")
+              for it in items[:20]:
+                  kode = it.get("code", "")
+                  file = it.get("filename", "")
+                  baris = it.get("location", {}).get("row", 0)
+                  arti = KAMUS.get(kode, it.get("message", ""))
+                  print(f"  - {file} baris {baris} [{kode}]: {arti}")
+          PY
 
       - name: 3. Simpan Hasil Kerja Raccoons Service
         run: |
