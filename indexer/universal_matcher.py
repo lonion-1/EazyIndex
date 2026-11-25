@@ -13,9 +13,7 @@ import tomllib
 from pathlib import Path
 
 try:
-    from radar.core import ctx_judol_count, deobfuscate, leet_variants
-except ModuleNotFoundError:
-    from auditor.core import ctx_judol_count, deobfuscate, leet_variants
+    from indexer.main import ctx_judol_count, deobfuscate, leet_variants
 
 ROOT = Path(__file__).resolve().parents[1]
 _EXT_CACHE: dict[tuple[str, float], dict] = {}
