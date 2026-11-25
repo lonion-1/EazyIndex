@@ -62,7 +62,7 @@ jobs:
                   elif ext == ".py":
                       cand_idx = Path("indexer") / item.name
                       if cand_idx.exists():
-                         dest = cand_idx
+                          dest = cand_idx
                       else:
                           dest = Path("scripts") / item.name
                       else:
