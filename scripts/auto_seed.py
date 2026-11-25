@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from radar.core import ROOT, deobfuscate, load_config, log
+from indexer.main import ROOT, deobfuscate, load_config, log
 
 SUGGEST_FILE = ROOT / ".cache" / "webindex" / "suggest.json"
 MAX_PER_CAT = 600
