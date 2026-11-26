@@ -3,6 +3,8 @@ name: Raccoons Service (Adaptive Dropzone Router)
 on:
   push:
     branches: [main, master, blocker]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       approve_file:
