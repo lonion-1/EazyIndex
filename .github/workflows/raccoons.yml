@@ -1,5 +1,6 @@
 name: Raccoons Service (Adaptive Dropzone Router)
 # PR validation is read-only; push runs may persist validated routing changes.
+# Router tests and syntax checks run before any write-capable step.
 
 on:
   push:
