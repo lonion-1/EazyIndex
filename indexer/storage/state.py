@@ -40,32 +40,61 @@ def append_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def read_jsonl(path: Path) -> list[dict]:
+    """Baca JSONL baris-per-baris; baris korup/bukan-dict di-skip, bukan membuang seluruh file."""
     if not path.exists():
         return []
     out: list[dict] = []
+    corrupt = 0
     try:
         with path.open("r", encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
-                if s:
-                    out.append(json.loads(s))
-    except (ValueError, OSError):
-        return []
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                except ValueError:
+                    corrupt += 1
+                    continue
+                if not isinstance(obj, dict):
+                    corrupt += 1
+                    continue
+                out.append(obj)
+    except OSError:
+        pass
+    if corrupt:
+        print(f"[STATE] {path.name}: skip {corrupt} baris korup", flush=True)
     return out
 
 
 def read_jsonl_gz(path: Path) -> list[dict]:
+    """Baca gzip JSONL; baris korup + EOFError di tail di-skip tanpa membuang baris valid sebelumnya."""
     if not path.exists():
         return []
     out: list[dict] = []
+    corrupt = 0
     try:
         with gzip.open(path, "rt", encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
-                if s:
-                    out.append(json.loads(s))
-    except (ValueError, OSError):
-        return []
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                except ValueError:
+                    corrupt += 1
+                    continue
+                if not isinstance(obj, dict):
+                    corrupt += 1
+                    continue
+                out.append(obj)
+    except EOFError:
+        # tail .gz rusak — baris valid sebelum EOF tetap dipakai
+        pass
+    except OSError:
+        pass
+    if corrupt:
+        print(f"[STATE] {path.name}: skip {corrupt} baris korup", flush=True)
     return out
 
 
