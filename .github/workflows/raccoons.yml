@@ -4,12 +4,17 @@ on:
   push:
     branches: [main, master, blocker]
   workflow_dispatch:
+    inputs:
+      approve_file:
+        description: "Filename in _dropzone/_review to approve for future routing learning"
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: raccoons-\${{ github.ref }}
+  group: raccoons-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +34,8 @@ jobs:
       - name: Run Raccoon safety tests
         run: python -m unittest discover -s tests -p 'test_raccoon_*.py' -v
       - name: Route dropzone and validate syntax
+        env:
+          RACCOON_APPROVE_FILE: ${{ inputs.approve_file }}
         run: python -m scripts.raccoon_service
       - name: Ruff diagnostics (non-mutating)
         run: |
