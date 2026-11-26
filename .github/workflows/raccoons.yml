@@ -44,7 +44,7 @@ jobs:
           python -m pip install --quiet ruff
           ruff check . --output-format=github --exit-zero
       - name: Save Raccoons changes
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
