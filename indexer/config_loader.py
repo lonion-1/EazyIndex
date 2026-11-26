@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EazyWhale
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pembaca & validator konfigurasi TOML modular (indexer.toml + legal_profiles.toml + categories/*.toml).
 Mendukung tomllib (Python 3.11+), tomli, serta fallback parser TOML murni tanpa dependensi eksternal.
@@ -7,6 +7,7 @@ Mendukung tomllib (Python 3.11+), tomli, serta fallback parser TOML murni tanpa 
 from __future__ import annotations
 
 import ast
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -270,6 +271,34 @@ def _load_toml(path: Path) -> dict:
         raise ConfigError(f"Format TOML rusak di {path}: {e}") from e
 
 
+def _load_external_engines_config(cdir: Path) -> dict:
+    """Muat konfigurasi mesin pencari dari repo privat EazyVault (jika tersedia)."""
+    candidates: list[Path] = []
+    env_file = os.environ.get("EAZYVAULT_ENGINES_TOML", "").strip()
+    if env_file:
+        candidates.append(Path(env_file).expanduser())
+    env_dir = os.environ.get("EAZYVAULT_DIR", "").strip()
+    if env_dir:
+        candidates.append(Path(env_dir).expanduser() / "config" / "engines.toml")
+
+    candidates.extend(
+        [
+            ROOT.parent / "EazyVault" / "config" / "engines.toml",
+            ROOT / "EazyVault" / "config" / "engines.toml",
+            cdir / "engines.toml",
+        ]
+    )
+
+    for path in candidates:
+        if path.is_file():
+            raw = _load_toml(path)
+            eng_sec = raw.get("engines")
+            if isinstance(eng_sec, dict):
+                return dict(eng_sec)
+            return dict(raw)
+    return {}
+
+
 def load_indexer_config(config_dir: Path | None = None) -> IndexerConfig:
     cdir = config_dir or (ROOT / "config")
     main_raw = _load_toml(cdir / "indexer.toml")
@@ -277,6 +306,9 @@ def load_indexer_config(config_dir: Path | None = None) -> IndexerConfig:
 
     run_cfg = dict(main_raw.get("run") or {})
     eng_cfg = dict(main_raw.get("engines") or {})
+    ext_eng_cfg = _load_external_engines_config(cdir)
+    if ext_eng_cfg:
+        eng_cfg.update(ext_eng_cfg)
     dom_cfg = dict(main_raw.get("domain_rules") or {})
 
     multi_tlds = frozenset(
