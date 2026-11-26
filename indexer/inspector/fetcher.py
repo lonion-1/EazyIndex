@@ -322,25 +322,35 @@ class SimpleHttpClient:
                 try:
                     if final_status in (404, 410):
                         self._record_host(host, False)
-                        return FetchResponse(False, "gone", final_status, current_url, "")
+                        return FetchResponse(
+                            False, "gone", final_status, current_url, ""
+                        )
                     if final_status in (401, 403, 429, 451):
                         self._record_host(host, False)
-                        return FetchResponse(False, "blocked", final_status, current_url, "")
+                        return FetchResponse(
+                            False, "blocked", final_status, current_url, ""
+                        )
                     if final_status >= 500:
                         self._record_host(host, False)
-                        return FetchResponse(False, "transient", final_status, current_url, "")
+                        return FetchResponse(
+                            False, "transient", final_status, current_url, ""
+                        )
 
                     if 300 <= final_status < 400:
                         loc = (resp.headers.get("Location") or "").strip()
                         if not loc:
-                            return FetchResponse(False, "transient", final_status, current_url, "")
+                            return FetchResponse(
+                                False, "transient", final_status, current_url, ""
+                            )
                         next_url = urllib.parse.urldefrag(
                             urllib.parse.urljoin(current_url, loc)
                         )[0]
                         key = next_url.lower()
                         if key in visited_urls:
                             self._bump("redirect_loop")
-                            return FetchResponse(False, "transient", final_status, current_url, "")
+                            return FetchResponse(
+                                False, "transient", final_status, current_url, ""
+                            )
                         visited_urls.add(key)
                         current_url = next_url
                         continue
@@ -359,7 +369,9 @@ class SimpleHttpClient:
                                 cl = 0
                             if cl > max_bytes * 15:
                                 self._bump("size_guard")
-                                return FetchResponse(False, "skipped", final_status, final_url, "")
+                                return FetchResponse(
+                                    False, "skipped", final_status, final_url, ""
+                                )
 
                         # ── Blacklist Content-Type (bukan whitelist) ──
                         ct = ct_raw.lower().split(";", 1)[0].strip()
@@ -368,7 +380,9 @@ class SimpleHttpClient:
                             or ct in _BINARY_MIME_EXACT
                         ):
                             self._bump("content_skip")
-                            return FetchResponse(False, "skipped", final_status, final_url, "")
+                            return FetchResponse(
+                                False, "skipped", final_status, final_url, ""
+                            )
 
                         # ── Stream body + truncate + memory spike guard ──
                         chunks: list[bytes] = []
@@ -384,7 +398,10 @@ class SimpleHttpClient:
                                     if total == 0:
                                         timed_out_empty = True
                                     break
-                                if ct in ("", "application/octet-stream") and total == 0:
+                                if (
+                                    ct in ("", "application/octet-stream")
+                                    and total == 0
+                                ):
                                     head = chunk[:512]
                                     if b"\x00" in head or any(
                                         head.startswith(m) for m in _BINARY_MAGIC_BYTES
@@ -400,17 +417,24 @@ class SimpleHttpClient:
                                     break
                         except RequestsError as e:
                             self._record_host(
-                                (urllib.parse.urlparse(final_url).hostname or "").lower(), False
+                                (
+                                    urllib.parse.urlparse(final_url).hostname or ""
+                                ).lower(),
+                                False,
                             )
                             return self._map_curl_error(e, final_url)
 
                         if binary_sniff:
                             self._bump("content_skip")
-                            return FetchResponse(False, "skipped", final_status, final_url, "")
+                            return FetchResponse(
+                                False, "skipped", final_status, final_url, ""
+                            )
 
                         if timed_out_empty:
                             self._bump("timeout_empty")
-                            return FetchResponse(False, "transient", final_status, final_url, "")
+                            return FetchResponse(
+                                False, "transient", final_status, final_url, ""
+                            )
 
                         raw = b"".join(chunks)
                         try:
@@ -420,7 +444,9 @@ class SimpleHttpClient:
 
                         return FetchResponse(True, "ok", final_status, final_url, text)
 
-                    return FetchResponse(False, "transient", final_status, current_url, "")
+                    return FetchResponse(
+                        False, "transient", final_status, current_url, ""
+                    )
                 finally:
                     try:
                         resp.close()

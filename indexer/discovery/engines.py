@@ -364,9 +364,7 @@ def decode_serp_url(url: str) -> str:
     )
 
 
-def detect_serp_block(
-    raw_html: str, extra_signatures: tuple[str, ...] = ()
-) -> bool:
+def detect_serp_block(raw_html: str, extra_signatures: tuple[str, ...] = ()) -> bool:
     sample = raw_html[:24000].lower()
     if any(sig in sample for sig in BLOCK_SIGNATURES):
         return True
@@ -584,9 +582,7 @@ class EnginePool:
             min_active = min(len(self.engines), max(self.max_engines_per_query, 4))
             if len(alive) < min_active:
                 disabled = [
-                    e
-                    for e in self.engines
-                    if self.disabled_at.get(e.name, 0.0) > 0.0
+                    e for e in self.engines if self.disabled_at.get(e.name, 0.0) > 0.0
                 ]
                 disabled.sort(key=lambda e: self.disabled_at.get(e.name, 0.0))
                 for e in disabled[: min_active - len(alive)]:
