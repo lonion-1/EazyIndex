@@ -8,3 +8,9 @@ __pycache__/
 *.toml
 _vault/
 benign_pool.txt
+ 
+# Allow new runtime configuration files to be versioned.
+!/config/
+!/config/*.toml
+!/config/categories/
+!/config/categories/*.toml
