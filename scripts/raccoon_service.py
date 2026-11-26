@@ -78,7 +78,7 @@ def target_for(src,text,state):
 def route(cfg,state):
     if not DROP.is_dir(): return
     threshold=float(cfg.get("auto_threshold",.85))
-    for src in sorted(p for p in DROP.rglob("*") if p.is_file()):
+    scan = DROP.rglob("*") if cfg.get("recursive_scan", True) else DROP.iterdir()\n    for src in sorted(p for p in scan if p.is_file()):
         rel=src.relative_to(DROP)
         if any(x in {"_review","_conflicts"} for x in rel.parts) or src.name.startswith("."): continue
         try:
@@ -86,7 +86,7 @@ def route(cfg,state):
             text=src.read_text(encoding="utf-8")
         except (OSError,UnicodeError,ValueError) as e:
             print(f"[HOLD] {src}: {e}"); continue
-        dest,confidence,reason=target_for(src,text,state)
+        dest,confidence,reason=target_for(src,text,state)\n        if not cfg.get("auto_route", True): dest,confidence,reason=None,0.0,"automatic routing disabled by config"
         if dest is None or confidence<threshold:
             bucket=DROP/"_review"/rel
         elif dest.exists():
@@ -130,7 +130,7 @@ def history_changes(base,valid):
         before=old.stdout if old.returncode==0 else ""
         p=ROOT/name; after=p.read_text(encoding="utf-8") if p.is_file() else ""
         diff=list(difflib.unified_diff(before.splitlines(),after.splitlines(),fromfile="before/"+name,tofile="after/"+name,lineterm=""))
-        append_history({"ts":int(time.time()),"action":"change","path":name,"base_commit":base,"validated":bool(valid),"diff":diff[:200],"diff_sha256":hashlib.sha256("\n".join(diff).encode()).hexdigest()})
+        append_history({"ts":int(time.time()),"action":"change","path":name,"base_commit":base,"validated":bool(valid),"diff":diff[:5000],"diff_truncated":len(diff)>5000,"diff_sha256":hashlib.sha256("\n".join(diff).encode()).hexdigest()})
 
 def cleanup(cfg):
     if not HISTORY.exists(): return
