@@ -376,6 +376,7 @@ class SimpleHttpClient:
                         pass
                     resp = None
 
+        final_url = current_url
         if not keep_open or resp is None:
             return FetchResponse(False, "transient", final_status, final_url, "")
 
