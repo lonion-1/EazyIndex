@@ -78,7 +78,8 @@ def target_for(src,text,state):
 def route(cfg,state):
     if not DROP.is_dir(): return
     threshold=float(cfg.get("auto_threshold",.85))
-    scan = DROP.rglob("*") if cfg.get("recursive_scan", True) else DROP.iterdir()\n    for src in sorted(p for p in scan if p.is_file()):
+    scan = DROP.rglob("*") if cfg.get("recursive_scan", True) else DROP.iterdir()
+    for src in sorted(p for p in scan if p.is_file()):
         rel=src.relative_to(DROP)
         if any(x in {"_review","_conflicts"} for x in rel.parts) or src.name.startswith("."): continue
         try:
