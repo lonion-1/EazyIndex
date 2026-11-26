@@ -364,9 +364,13 @@ def decode_serp_url(url: str) -> str:
     )
 
 
-def detect_serp_block(raw_html: str) -> bool:
+def detect_serp_block(
+    raw_html: str, extra_signatures: tuple[str, ...] = ()
+) -> bool:
     sample = raw_html[:24000].lower()
-    return any(sig in sample for sig in BLOCK_SIGNATURES)
+    if any(sig in sample for sig in BLOCK_SIGNATURES):
+        return True
+    return bool(extra_signatures) and any(sig in sample for sig in extra_signatures)
 
 
 def _extract_trailing_snippet(raw_html: str, anchor_end: int, title: str) -> str:
@@ -430,10 +434,26 @@ class SearxngEngine:
 
 
 class HtmlSearchEngine:
-    def __init__(self, name: str, template: str, multi_tlds: frozenset[str]):
+    def __init__(
+        self,
+        name: str,
+        template: str,
+        multi_tlds: frozenset[str],
+        *,
+        timeout: float = 12.0,
+        step: int = 10,
+        start_offset: int = 0,
+        default_lang: str = "",
+        waf_signatures: tuple[str, ...] = (),
+    ):
         self.name = name
         self.template = template
         self.multi_tlds = multi_tlds
+        self.timeout = max(3.0, float(timeout))
+        self.step = max(1, int(step))
+        self.start_offset = max(0, int(start_offset))
+        self.default_lang = default_lang.strip()
+        self.waf_signatures = waf_signatures
         host = urllib.parse.urlparse(template).netloc.lower()
         self.root = registrable_domain(host, multi_tlds)
         self.supports_paging = any(
@@ -441,10 +461,11 @@ class HtmlSearchEngine:
         )
 
     def _build_url(self, q: str, page: int, lang: str) -> str:
-        offset = (page - 1) * 10
+        offset = self.start_offset + (page - 1) * self.step
+        eff_lang = self.default_lang or lang or "id"
         return (
             self.template.replace("{q}", urllib.parse.quote_plus(q))
-            .replace("{lang}", urllib.parse.quote_plus(lang or "id"))
+            .replace("{lang}", urllib.parse.quote_plus(eff_lang))
             .replace("{page}", str(page))
             .replace("{page1}", str(page))
             .replace("{offset}", str(offset))
@@ -459,13 +480,13 @@ class HtmlSearchEngine:
 
         r = http.get(
             self._build_url(q, page, lang),
-            timeout=9.0,
+            timeout=self.timeout,
             max_bytes=450_000,
             deadline_ts=deadline_ts,
         )
         if not r.ok:
             return r.kind, []
-        if detect_serp_block(r.text):
+        if detect_serp_block(r.text, self.waf_signatures):
             return "blocked", []
 
         seen: set[str] = set()
@@ -504,18 +525,27 @@ class HtmlSearchEngine:
 
 
 class EnginePool:
-    """Zero-sleep round-robin search router."""
+    """Zero-sleep anti-bias search router (break -> disable -> runtime recovery)."""
 
-    def __init__(self, engines: list, soft_gap: float = 0.8, max_empty_tries: int = 3):
+    def __init__(
+        self,
+        engines: list,
+        soft_gap: float = 0.8,
+        max_empty_tries: int = 3,
+        max_engines_per_query: int = 5,
+        stop_after_good_hits: int = 12,
+    ):
         self._lock = threading.Lock()
+        self._started_at = time.monotonic()
         self.engines = list(engines)
         self.soft_gap = soft_gap
         self.max_empty_tries = max(1, max_empty_tries)
-        self.fails: dict[str, int] = {e.name: 0 for e in engines}
+        self.max_engines_per_query = max(1, int(max_engines_per_query))
+        self.stop_after_good_hits = max(1, int(stop_after_good_hits))
+        self.disabled_at: dict[str, float] = {e.name: 0.0 for e in engines}
         self.empty_streak: dict[str, int] = {e.name: 0 for e in engines}
-        self.cooldown_until: dict[str, float] = {e.name: 0.0 for e in engines}
         self.last_used: dict[str, float] = {e.name: 0.0 for e in engines}
-        self.turn = 0
+        self._last_engine_name: str = ""
 
     def inject_engines(self, new_engines: list) -> None:
         with self._lock:
@@ -523,93 +553,102 @@ class EnginePool:
             for e in new_engines:
                 if e.name not in existing:
                     self.engines.append(e)
-                    self.fails[e.name] = 0
+                    self.disabled_at[e.name] = 0.0
                     self.empty_streak[e.name] = 0
-                    self.cooldown_until[e.name] = 0.0
                     self.last_used[e.name] = 0.0
                     existing.add(e.name)
+
+    def _trip_engine(self, name: str) -> None:
+        with self._lock:
+            self.disabled_at[name] = time.monotonic()
 
     def _pick_order(self) -> list:
         now = time.monotonic()
         with self._lock:
             if not self.engines:
                 return []
-            live = [
-                e for e in self.engines if self.cooldown_until.get(e.name, 0.0) <= now
-            ]
-            if not live:
-                soonest = min(
-                    self.engines, key=lambda e: self.cooldown_until.get(e.name, 0.0)
-                )
-                self.cooldown_until[soonest.name] = now + 12.0
-                return [soonest]
-            self.turn += 1
-            idx = self.turn % len(live)
-            rotated = live[idx:] + live[:idx]
-            ready = [
-                e
-                for e in rotated
-                if (now - self.last_used.get(e.name, 0.0)) >= self.soft_gap
-            ]
-            warm = [
-                e
-                for e in rotated
-                if (now - self.last_used.get(e.name, 0.0)) < self.soft_gap
-            ]
-            return ready + warm
 
-    def _record_failure(self, name: str, kind: str) -> None:
-        with self._lock:
-            self.fails[name] = self.fails.get(name, 0) + 1
-            strikes = self.fails[name]
-            if kind == "blocked":
-                self.cooldown_until[name] = time.monotonic() + min(
-                    600.0, 90.0 * strikes
-                )
-            elif strikes >= 2:
-                self.cooldown_until[name] = time.monotonic() + min(
-                    300.0, 20.0 * (2 ** (strikes - 2))
-                )
+            # Pemulihan dinamis berbasis waktu berjalan (non-fixed)
+            runtime_elapsed = max(1.0, now - self._started_at)
+            recovery_window = max(25.0, min(300.0, runtime_elapsed * 0.25))
+            for e in self.engines:
+                tripped_ts = self.disabled_at.get(e.name, 0.0)
+                if tripped_ts > 0.0 and (now - tripped_ts) >= recovery_window:
+                    self.disabled_at[e.name] = 0.0
+
+            alive = [
+                e for e in self.engines if self.disabled_at.get(e.name, 0.0) == 0.0
+            ]
+
+            # Jaga lantai minimal pool agar tidak bias ke segelintir engine saja
+            min_active = min(len(self.engines), max(self.max_engines_per_query, 4))
+            if len(alive) < min_active:
+                disabled = [
+                    e
+                    for e in self.engines
+                    if self.disabled_at.get(e.name, 0.0) > 0.0
+                ]
+                disabled.sort(key=lambda e: self.disabled_at.get(e.name, 0.0))
+                for e in disabled[: min_active - len(alive)]:
+                    self.disabled_at[e.name] = 0.0
+                    alive.append(e)
+
+            random.shuffle(alive)
+
+            # Switch pasti: hindari engine pembuka yang sama persis dengan eksekusi terakhir
+            if len(alive) > 1 and alive[0].name == self._last_engine_name:
+                swap_idx = random.randrange(1, len(alive))
+                alive[0], alive[swap_idx] = alive[swap_idx], alive[0]
+
+            return alive[: self.max_engines_per_query]
 
     def search(
         self, http, q: str, page: int, deadline_ts: float, lang: str
     ) -> list[SearchHit]:
         order = self._pick_order()
-        ok_empty = 0
+        collected: list[SearchHit] = []
+        seen_urls: set[str] = set()
+
         for e in order:
             if time.monotonic() >= deadline_ts - 0.5:
                 break
             with self._lock:
                 self.last_used[e.name] = time.monotonic()
+                self._last_engine_name = e.name
 
             kind, hits = e.search(http, q, page, deadline_ts, lang)
-            if kind == "ok":
+            if kind != "ok":
+                # Break -> Matikan -> Langsung switch ke sisa engine
+                self._trip_engine(e.name)
+                continue
+
+            if hits:
                 with self._lock:
-                    self.fails[e.name] = 0
-                if hits:
-                    with self._lock:
-                        self.empty_streak[e.name] = 0
-                    return hits
-                if page == 1:
-                    with self._lock:
-                        self.empty_streak[e.name] = self.empty_streak.get(e.name, 0) + 1
-                        if self.empty_streak[e.name] >= 4:
-                            self.cooldown_until[e.name] = time.monotonic() + 60.0
-                            self.empty_streak[e.name] = 0
-                ok_empty += 1
-                if ok_empty >= self.max_empty_tries:
+                    self.empty_streak[e.name] = 0
+                for h in hits:
+                    if h.url not in seen_urls:
+                        seen_urls.add(h.url)
+                        collected.append(h)
+                if len(collected) >= self.stop_after_good_hits:
                     break
-            else:
-                self._record_failure(e.name, kind)
-        return []
+            elif page == 1:
+                with self._lock:
+                    self.empty_streak[e.name] = self.empty_streak.get(e.name, 0) + 1
+                    if self.empty_streak[e.name] >= 3:
+                        self.disabled_at[e.name] = time.monotonic()
+                        self.empty_streak[e.name] = 0
+
+        return collected
 
 
 def build_engine_pool(
     ec: dict, multi_tlds: frozenset[str], only: set[str] | None = None
 ) -> EnginePool:
     global _DISCOVERY_RUNNING
-    engines: list = []
+    if not bool(ec.get("enabled", True)):
+        return EnginePool([])
 
+    engines: list = []
     want_searx = not only or "searxng" in only
     cache_path = str(ec.get("cache_path", ".cache/webindex/searx_space_verified.json"))
     cache_ttl = int(ec.get("cache_ttl", 21600))
@@ -623,7 +662,7 @@ def build_engine_pool(
             if u.strip()
         ]
 
-        if bool(ec.get("auto_discover", True)):
+        if bool(ec.get("auto_discover", False)):
             cfile = Path(cache_path)
             if cfile.exists():
                 try:
@@ -639,10 +678,38 @@ def build_engine_pool(
         for u in dict.fromkeys(urls):
             engines.append(SearxngEngine(u))
 
+    wave_timeouts: dict[str, float] = {}
+    for wcfg in (ec.get("waves") or {}).values():
+        if not isinstance(wcfg, dict):
+            continue
+        w_timeout = float(wcfg.get("timeout", 12.0))
+        for ename in wcfg.get("engines") or []:
+            wave_timeouts[str(ename)] = w_timeout
+
+    pagination_cfg = ec.get("pagination") or {}
+    profiles_cfg = ec.get("profiles") or {}
+    waf_raw = (ec.get("waf_signatures") or {}).get("patterns") or []
+    waf_patterns = tuple(
+        dict.fromkeys(str(p).strip().lower() for p in waf_raw if str(p).strip())
+    )
+
     tmpl = ec.get("templates") or {}
     for name in dict.fromkeys(ec.get("fallback", [])):
         if name in tmpl:
-            engines.append(HtmlSearchEngine(name, tmpl[name], multi_tlds))
+            pg = pagination_cfg.get(name) or {}
+            prof = profiles_cfg.get(name) or {}
+            engines.append(
+                HtmlSearchEngine(
+                    name,
+                    tmpl[name],
+                    multi_tlds,
+                    timeout=wave_timeouts.get(name, 12.0),
+                    step=int(pg.get("step", 10)),
+                    start_offset=int(pg.get("start_offset", 0)),
+                    default_lang=str(prof.get("lang", "")),
+                    waf_signatures=waf_patterns,
+                )
+            )
 
     if only:
         engines = [e for e in engines if e.name.split("@")[0] in only]
@@ -651,9 +718,11 @@ def build_engine_pool(
         engines,
         soft_gap=float(ec.get("soft_gap", 0.8)),
         max_empty_tries=int(ec.get("max_empty_tries", 3)),
+        max_engines_per_query=int(ec.get("max_engines_per_query", 5)),
+        stop_after_good_hits=int(ec.get("stop_after_good_hits", 12)),
     )
 
-    if want_searx and bool(ec.get("auto_discover", True)) and need_bg_refresh:
+    if want_searx and bool(ec.get("auto_discover", False)) and need_bg_refresh:
         with _DISCOVERY_LOCK:
             if not _DISCOVERY_RUNNING:
                 _DISCOVERY_RUNNING = True
