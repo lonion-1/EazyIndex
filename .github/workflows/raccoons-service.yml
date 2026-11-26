@@ -1,0 +1,329 @@
+name: Raccoons Service (Safe Auto-Fix)
+
+on:
+  push:
+    branches: [main, master, blocker]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  racoon-service:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: pip install --quiet ruff
+
+      - name: 1. Rapikan TOML/JSON/MD (aman) & deteksi spasi
+        id: tidy
+        run: |
+          python3 - <<'PY'
+          import io
+          import json
+          import os
+          import re
+          import tokenize
+          import tomllib
+          from collections import Counter
+          from pathlib import Path
+
+          SKIP = {".git", ".github", "__pycache__", ".venv", "venv", "node_modules"}
+          fixed = 0
+
+
+          def walk(*exts):
+              for p in sorted(Path(".").rglob("*")):
+                  if p.is_file() and p.suffix.lower() in exts and not SKIP & set(p.parts):
+                      yield p
+
+
+          def read(p):
+              try:
+                  return p.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  return None
+
+
+          def warn(msg):
+              print(f"::warning::{msg}")
+
+
+          def eol(t):
+              # CRLF/CR -> LF, tepat satu newline di akhir file
+              return t.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n"
+
+
+          def parses_toml(t):
+              try:
+                  return tomllib.loads(t)
+              except tomllib.TOMLDecodeError:
+                  return None
+
+
+          # ---------- Deteksi indentasi Python (pakai tokenizer, bukan tebakan) ----------
+          def py_indents(text):
+              c, stack = Counter(), [0]
+              try:
+                  for t in tokenize.generate_tokens(io.StringIO(text).readline):
+                      if t.type == tokenize.INDENT:
+                          n = len(t.string)
+                          if "\t" not in t.string:
+                              c[n - stack[-1]] += 1
+                          stack.append(n)
+                      elif t.type == tokenize.DEDENT and len(stack) > 1:
+                          stack.pop()
+              except (tokenize.TokenError, SyntaxError):
+                  return Counter()
+              return c
+
+
+          def lead_step(text):
+              c = Counter()
+              for ln in text.split("\n"):
+                  n = len(ln) - len(ln.lstrip(" "))
+                  if n and ln.strip() and not ln.lstrip().startswith("#"):
+                      c[n] += 1
+              return min(c) if c else None
+
+
+          # ---------- Perbaikan regex di TOML (hanya dipakai kalau memang rusak) ----------
+          OK_ESC = set('btnfr"\\uU')
+          RE_DQ = re.compile(r'(?<!")"(?!"")((?:[^"\\\n]|\\.)*)"(?!")')
+          RE_STR = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|'[^'\n]*'")
+          RE_FLAG = re.compile(r"(?<!\\)\(\?([aiLmsux]+)\)")
+
+
+          def has_bad_escape(s):
+              i = 0
+              while i < len(s):
+                  if s[i] == "\\":
+                      if i + 1 >= len(s) or s[i + 1] not in OK_ESC:
+                          return True
+                      i += 2
+                  else:
+                      i += 1
+              return False
+
+
+          def fix_dq(src):
+              def repl(m):
+                  inner = m.group(1)
+                  if not has_bad_escape(inner):
+                      return m.group(0)
+                  if "'" not in inner:
+                      return f"'{inner}'"
+                  out, i = [], 0
+                  while i < len(inner):
+                      if inner[i] == "\\":
+                          nxt = inner[i + 1] if i + 1 < len(inner) else ""
+                          if nxt in OK_ESC:
+                              out.append("\\" + nxt)
+                              i += 2
+                          else:
+                              out.append("\\\\")
+                              i += 1
+                      else:
+                          out.append(inner[i])
+                          i += 1
+                  return '"' + "".join(out) + '"'
+
+              return RE_DQ.sub(repl, src)
+
+
+          def relocate(pat):
+              try:
+                  re.compile(pat)
+                  return pat
+              except re.error as e:
+                  if "global flags not at the start" not in str(e):
+                      return pat
+              flags = ""
+
+              def strip(m):
+                  nonlocal flags
+                  for ch in m.group(1):
+                      if ch not in flags:
+                          flags += ch
+                  return ""
+
+              body = RE_FLAG.sub(strip, pat)
+              cand = f"(?{flags}){body}"
+              try:
+                  re.compile(cand)
+                  return cand
+              except re.error:
+                  return pat
+
+
+          def fix_flags(src):
+              def repl(m):
+                  tok = m.group(0)
+                  q, inner = tok[0], tok[1:-1]
+                  if q == '"' and "\\" in inner:
+                      return tok
+                  return q + relocate(inner) + q
+
+              return RE_STR.sub(repl, src)
+
+
+          # ---------- TOML ----------
+          for p in walk(".toml"):
+              old = read(p)
+              if old is None or not old.strip():
+                  continue
+              new = eol(old)
+
+              if parses_toml(new) is None:
+                  cand = fix_dq(new)
+                  if parses_toml(cand) is None:
+                      warn(f"{p}: TOML rusak & tidak bisa diperbaiki aman, dilewati")
+                      continue
+                  new = cand
+                  print(f"[REGEX] {p}: string regex diperbaiki")
+
+              step = lead_step(new) or 2
+              print(f"[INDENT] {p}: {step} spasi")
+
+              def norm(ln):
+                  ln = ln.rstrip(" \t")
+                  lead = len(ln) - len(ln.lstrip("\t"))
+                  return " " * step * lead + ln.lstrip("\t") if lead else ln
+
+              ws = "\n".join(norm(x) for x in new.split("\n"))
+              if parses_toml(ws) == parses_toml(new):
+                  new = ws
+
+              fl = fix_flags(new)
+              if fl != new and parses_toml(fl) is not None:
+                  new = fl
+                  print(f"[REGEX] {p}: flag global dipindah ke awal")
+
+              if new != old:
+                  p.write_text(new, encoding="utf-8")
+                  fixed += 1
+
+          # ---------- JSON (tidak di-dump ulang, hanya spasi akhir baris) ----------
+          for p in walk(".json"):
+              old = read(p)
+              if old is None or not old.strip():
+                  continue
+              try:
+                  data = json.loads(old)
+              except ValueError as e:
+                  warn(f"{p}: JSON tidak valid ({e}), dilewati")
+                  continue
+              new = eol("\n".join(x.rstrip(" \t") for x in old.replace("\r\n", "\n").split("\n")))
+              if json.loads(new) == data and new != old:
+                  p.write_text(new, encoding="utf-8")
+                  fixed += 1
+
+          # ---------- Markdown (dua spasi di akhir baris = line break, jangan dihapus) ----------
+          for p in walk(".md"):
+              old = read(p)
+              if old is None or not old.strip():
+                  continue
+              new = eol(old)
+              if new != old:
+                  p.write_text(new, encoding="utf-8")
+                  fixed += 1
+
+          # ---------- Deteksi indentasi Python se-repo ----------
+          total = Counter()
+          for p in walk(".py"):
+              t = read(p)
+              if t:
+                  total.update(py_indents(t))
+
+          has_cfg = any(Path(f).exists() for f in ("ruff.toml", ".ruff.toml"))
+          pj = Path("pyproject.toml")
+          if pj.exists() and "[tool.ruff" in pj.read_text(encoding="utf-8", errors="ignore"):
+              has_cfg = True
+
+          width = ""
+          if total and not has_cfg:
+              w = total.most_common(1)[0][0]
+              width = str(w) if w in (2, 4, 8) else ""
+              print(f"[INDENT] Python: terdeteksi {w} spasi -> dipakai Ruff" if width else f"[INDENT] Python: {w} spasi (tidak lazim, pakai default Ruff)")
+          elif has_cfg:
+              print("[INDENT] Python: config Ruff sudah ada, dihormati")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"indent={width}\n")
+          print(f"[RACCOON] {fixed} file dirapikan.")
+          PY
+
+      - name: 2. Ruff (hanya perbaikan spasi + format)
+        env:
+          INDENT: ${{ steps.tidy.outputs.indent }}
+        run: |
+          ARGS=()
+          if [ -n "$INDENT" ]; then ARGS=(--config "indent-width=$INDENT"); fi
+          ruff check --fix --select W --exit-zero "${ARGS[@]}" .
+          ruff format "${ARGS[@]}" .
+
+      - name: 3. Jaring pengaman (batalkan kalau kode berubah makna)
+        run: |
+          python3 - <<'PY'
+          import ast
+          import subprocess
+
+
+          def sh(*a):
+              return subprocess.run(a, capture_output=True, text=True)
+
+
+          def dump(src):
+              tree = ast.parse(src)
+              for n in ast.walk(tree):
+                  b = getattr(n, "body", None)
+                  if (
+                      isinstance(b, list)
+                      and b
+                      and isinstance(b[0], ast.Expr)
+                      and isinstance(getattr(b[0], "value", None), ast.Constant)
+                      and isinstance(b[0].value.value, str)
+                  ):
+                      b[0].value.value = ""  # docstring boleh dirapikan Ruff
+              return ast.dump(tree)
+
+
+          for f in sh("git", "diff", "--name-only", "--", "*.py").stdout.split():
+              try:
+                  before = dump(sh("git", "show", f"HEAD:{f}").stdout)
+              except SyntaxError:
+                  continue  # file asli sudah rusak, tidak ada pembanding
+              try:
+                  after = dump(open(f, encoding="utf-8").read())
+              except SyntaxError:
+                  after = None
+              if before != after:
+                  sh("git", "checkout", "--", f)
+                  print(f"::warning::{f}: hasil berubah makna, dikembalikan")
+          PY
+
+      - name: 4. Simpan hasil
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git reset -- .github/ || true
+          if git diff --staged --quiet; then
+            echo "Semua sudah bersih dan rapi."
+            exit 0
+          fi
+          git commit -m "style: Raccoons Service safe auto-fix [skip ci]"
+          git push
