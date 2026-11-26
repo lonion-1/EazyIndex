@@ -188,14 +188,57 @@ def finalize_run_history(base_commit, run_started, validated):
     tmp.write_text("\\n".join(rows) + ("\\n" if rows else ""), encoding="utf-8")
     os.replace(tmp, HISTORY)
 
+def apply_human_feedback(state):
+    raw=os.environ.get("RACCOON_APPROVE_FILE","").strip()
+    if not raw: return
+    if "=" not in raw: raise ValueError("approve_file format: filename=target/directory")
+    filename,target_dir=(x.strip() for x in raw.split("=",1))
+    source=DROP/"_review"/filename
+    target=(ROOT/target_dir).resolve()
+    if not source.is_file() or not target.is_dir() or ROOT not in target.parents:
+        raise ValueError("review file or approved target directory is invalid")
+    if source.suffix.lower()==".py": ast.parse(source.read_text(encoding="utf-8"))
+    dest=target/filename
+    if dest.exists(): raise FileExistsError(f"target exists: {dest.relative_to(ROOT)}")
+    os.replace(source,dest)
+    entry=state.setdefault("routes",{}).setdefault(filename,{})
+    entry["target"]=target.relative_to(ROOT).as_posix()
+    entry["approved"]=int(entry.get("approved",0))+1
+    entry["last_seen"]=int(time.time())
+    append_history({"ts":int(time.time()),"action":"human_approved_route","source":str(source.relative_to(ROOT)),"target":str(dest.relative_to(ROOT)),"validated":False})
+    print(f"[LEARNING] approved {filename} -> {dest.relative_to(ROOT)}")
+
+def finalize_run_history(base_commit,started,validated):
+    if not HISTORY.exists(): return
+    rows=[]
+    for line in HISTORY.read_text(encoding="utf-8").splitlines():
+        try: row=json.loads(line)
+        except ValueError: rows.append(line); continue
+        if int(row.get("ts",0))>=started:
+            row["base_commit"]=base_commit
+            row["validated"]=bool(validated)
+        rows.append(json.dumps(row,ensure_ascii=False,sort_keys=True))
+    tmp=HISTORY.with_suffix(".tmp")
+    tmp.write_text("\n".join(rows)+("\n" if rows else ""),encoding="utf-8")
+    os.replace(tmp,HISTORY)
+
 def main():
-    c=load_toml(CFG); cfg={**c.get("router",{}),**c.get("history",{})}
-    state=load_toml(STATE) if False else {}
+    c=load_toml(CFG)
+    cfg={**c.get("router",{}),**c.get("history",{})}
     try: state=json.loads(STATE.read_text(encoding="utf-8"))
     except (OSError,ValueError): state={"routes":{}}
-    base=git("rev-parse","HEAD"); route(cfg,state)
-    STATE.parent.mkdir(parents=True,exist_ok=True); tmp=STATE.with_suffix(".tmp"); tmp.write_text(json.dumps(state,indent=2)+"\n",encoding="utf-8"); os.replace(tmp,STATE)
-    valid=validate(); history_changes(base,valid); cleanup(cfg)
+    base=git("rev-parse","HEAD")
+    started=int(time.time())
+    apply_human_feedback(state)
+    route(cfg,state)
+    STATE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state,indent=2)+"\n",encoding="utf-8")
+    os.replace(tmp,STATE)
+    valid=validate()
+    history_changes(base,valid)
+    finalize_run_history(base,started,valid)
+    cleanup(cfg)
     print("[RACCOON] routing, validation, history maintenance complete")
     return 0 if valid else 1
 
