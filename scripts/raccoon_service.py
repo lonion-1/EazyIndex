@@ -138,11 +138,55 @@ def cleanup(cfg):
     for line in HISTORY.read_text(encoding="utf-8").splitlines():
         try:
             row=json.loads(line)
-            if int(row.get("ts",0))>=cutoff or not row.get("validated") or not row.get("base_commit"): kept.append(row); continue
+            if row.get("keep") or row.get("pinned") or int(row.get("ts",0))>=cutoff or not row.get("validated") or not row.get("base_commit"): kept.append(row); continue
             check=subprocess.run(["git","cat-file","-e",f"{row['base_commit']}^{{commit}}"],cwd=ROOT,capture_output=True)
             if check.returncode: kept.append(row)
         except (ValueError,TypeError): kept.append({"ts":int(time.time()),"validated":False,"raw":line})
     tmp=HISTORY.with_suffix(".tmp"); tmp.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in kept),encoding="utf-8"); os.replace(tmp,HISTORY)
+
+
+def apply_human_feedback(state):
+    raw = os.environ.get("RACCOON_APPROVE_FILE", "").strip()
+    if not raw:
+        return
+    if "=" not in raw:
+        raise ValueError("approve_file format must be filename=target/directory")
+    filename, target_dir = (part.strip() for part in raw.split("=", 1))
+    source = DROP / "_review" / filename
+    target = (ROOT / target_dir).resolve()
+    if not source.is_file() or not target.is_dir() or ROOT not in target.parents:
+        raise ValueError("review file or approved target directory is invalid")
+    content = source.read_text(encoding="utf-8")
+    if source.suffix.lower() == ".py":
+        ast.parse(content)
+    dest = target / filename
+    if dest.exists():
+        raise FileExistsError(f"approved target already exists: {dest.relative_to(ROOT)}")
+    os.replace(source, dest)
+    entry = state.setdefault("routes", {}).setdefault(filename, {})
+    entry["target"] = target.relative_to(ROOT).as_posix()
+    entry["approved"] = int(entry.get("approved", 0)) + 1
+    entry["last_seen"] = int(time.time())
+    append_history({"ts": int(time.time()), "action": "human_approved_route", "source": str(source.relative_to(ROOT)), "target": str(dest.relative_to(ROOT)), "validated": False})
+    print(f"[LEARNING] Human-approved route: {filename} -> {dest.relative_to(ROOT)}")
+
+def finalize_run_history(base_commit, run_started, validated):
+    if not HISTORY.exists():
+        return
+    rows = []
+    for line in HISTORY.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            rows.append(line)
+            continue
+        if int(row.get("ts", 0)) >= run_started:
+            row["base_commit"] = base_commit
+            row["validated"] = bool(validated)
+        rows.append(json.dumps(row, ensure_ascii=False, sort_keys=True))
+    tmp = HISTORY.with_suffix(".tmp")
+    tmp.write_text("\\n".join(rows) + ("\\n" if rows else ""), encoding="utf-8")
+    os.replace(tmp, HISTORY)
 
 def main():
     c=load_toml(CFG); cfg={**c.get("router",{}),**c.get("history",{})}
