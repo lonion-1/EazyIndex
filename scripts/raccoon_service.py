@@ -152,6 +152,8 @@ def apply_human_feedback(state):
     if "=" not in raw:
         raise ValueError("approve_file format must be filename=target/directory")
     filename, target_dir = (part.strip() for part in raw.split("=", 1))
+    if Path(filename).name != filename or "/" in filename or chr(92) in filename:
+        raise ValueError("approve_file must be a basename, not a path")
     source = DROP / "_review" / filename
     target = (ROOT / target_dir).resolve()
     if not source.is_file() or not target.is_dir() or ROOT not in target.parents:
