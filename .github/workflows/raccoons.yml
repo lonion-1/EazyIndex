@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       approve_file:
-        description: "Filename in _dropzone/_review to approve for future routing learning"
+        description: "Approval format: filename.py=indexer/package (existing target directory)"
         required: false
         type: string
 
