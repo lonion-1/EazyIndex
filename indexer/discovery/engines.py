@@ -16,17 +16,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
 
 from ..text_utils import registrable_domain, strip_tags
 
 SEARX_SPACE_URL = "https://searx.space/data/instances.json"
-PROBE_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+_PROBE_UAS: list[str] = []
 
 RE_A = re.compile(
     r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE
 )
-RE_TAG = re.compile(r"<[^>]+>")
-RE_SNIPPET_BOUNDARY = re.compile(r"<a\b|</(?:article|li|tr|section|dd)>", re.IGNORECASE)
 
 ENGINE_NOISE_DOMAINS = frozenset(
     {
