@@ -172,17 +172,12 @@ class _DnsCache:
 
 
 class SimpleHttpClient:
-    """Klien HTTP self-contained berbasis curl_cffi dengan SSRF guard per-hop.
-
-    Catatan siklus hidup: Session disimpan per worker thread di threading.local()
-    dan dibersihkan otomatis saat proses batch GitHub Actions berakhir.
-    """
+    """Klien HTTP self-contained berbasis curl_cffi dengan SSRF guard per-hop."""
 
     def __init__(self, dry: bool = False, impersonate: str = "chrome"):
         self.dry = dry
         self._impersonate = impersonate
         self._lock = threading.Lock()
-        self._local = threading.local()
         self._dns = _DnsCache()
         self._host_fails: dict[str, int] = {}
         self._tripped: set[str] = set()
@@ -195,17 +190,6 @@ class SimpleHttpClient:
             "redirect_loop": 0,
             "timeout_empty": 0,
         }
-
-    def _session(self) -> Session:
-        s = getattr(self._local, "session", None)
-        if s is None:
-            s = Session(
-                impersonate=self._impersonate,
-                verify=True,
-                trust_env=False,
-            )
-            self._local.session = s
-        return s
 
     def is_tripped(self, host: str) -> bool:
         with self._lock:
@@ -256,8 +240,6 @@ class SimpleHttpClient:
 
         visited_urls: set[str] = {urllib.parse.urldefrag(url)[0].lower()}
         current_url = url
-        keep_open = False
-        resp = None
         final_status = 0
         final_encoding = "utf-8"
         final_url = url
@@ -303,163 +285,146 @@ class SimpleHttpClient:
                 resolve_opt = {CurlOpt.RESOLVE: [pin]}
 
             # ── Request (retry SSL sekali) ──
-            self._session().cookies.clear()
-            try:
-                resp = self._session().request(
-                    current_url,
-                    allow_redirects=False,
-                    stream=True,
-                    timeout=(hop_connect, hop_total),
-                    curl_options=resolve_opt,
-                    verify=True,
-                )
-            except RequestsError as e:
-                if not _is_ssl_error(e):
-                    self._record_host(host, False)
-                    return self._map_curl_error(e, current_url)
-                self._bump("tls_fallback")
+            with Session(
+                impersonate=self._impersonate,
+                verify=True,
+                trust_env=False,
+                curl_options=resolve_opt,
+            ) as s:
                 try:
-                    resp = self._session().request(
+                    resp = s.get(
                         current_url,
                         allow_redirects=False,
                         stream=True,
                         timeout=(hop_connect, hop_total),
-                        curl_options=resolve_opt,
-                        verify=False,
                     )
-                except RequestsError as e2:
-                    self._record_host(host, False)
-                    return self._map_curl_error(e2, current_url)
+                except RequestsError as e:
+                    if not _is_ssl_error(e):
+                        self._record_host(host, False)
+                        return self._map_curl_error(e, current_url)
+                    self._bump("tls_fallback")
+                    try:
+                        resp = s.get(
+                            current_url,
+                            allow_redirects=False,
+                            stream=True,
+                            timeout=(hop_connect, hop_total),
+                            verify=False,
+                        )
+                    except RequestsError as e2:
+                        self._record_host(host, False)
+                        return self._map_curl_error(e2, current_url)
 
-            final_status = resp.status_code
-            ct_raw = resp.headers.get("Content-Type") or ""
-            final_encoding = _extract_charset(ct_raw)
+                final_status = resp.status_code
+                ct_raw = resp.headers.get("Content-Type") or ""
+                final_encoding = _extract_charset(ct_raw)
 
-            try:
-                if final_status in (404, 410):
-                    self._record_host(host, False)
-                    return FetchResponse(False, "gone", final_status, current_url, "")
-                if final_status in (401, 403, 429, 451):
-                    self._record_host(host, False)
-                    return FetchResponse(False, "blocked", final_status, current_url, "")
-                if final_status >= 500:
-                    self._record_host(host, False)
+                try:
+                    if final_status in (404, 410):
+                        self._record_host(host, False)
+                        return FetchResponse(False, "gone", final_status, current_url, "")
+                    if final_status in (401, 403, 429, 451):
+                        self._record_host(host, False)
+                        return FetchResponse(False, "blocked", final_status, current_url, "")
+                    if final_status >= 500:
+                        self._record_host(host, False)
+                        return FetchResponse(False, "transient", final_status, current_url, "")
+
+                    if 300 <= final_status < 400:
+                        loc = (resp.headers.get("Location") or "").strip()
+                        if not loc:
+                            return FetchResponse(False, "transient", final_status, current_url, "")
+                        next_url = urllib.parse.urldefrag(
+                            urllib.parse.urljoin(current_url, loc)
+                        )[0]
+                        key = next_url.lower()
+                        if key in visited_urls:
+                            self._bump("redirect_loop")
+                            return FetchResponse(False, "transient", final_status, current_url, "")
+                        visited_urls.add(key)
+                        current_url = next_url
+                        continue
+
+                    if 200 <= final_status < 300:
+                        final_url = current_url
+                        self._record_host(host, True)
+
+                        # ── Pre-check Content-Length (hanya uncompressed, toleran Value/TypeError) ──
+                        has_enc = bool(resp.headers.get("Content-Encoding"))
+                        if not has_enc:
+                            cl_raw = resp.headers.get("Content-Length")
+                            try:
+                                cl = int(cl_raw) if cl_raw is not None else 0
+                            except (ValueError, TypeError):
+                                cl = 0
+                            if cl > max_bytes * 15:
+                                self._bump("size_guard")
+                                return FetchResponse(False, "skipped", final_status, final_url, "")
+
+                        # ── Blacklist Content-Type (bukan whitelist) ──
+                        ct = ct_raw.lower().split(";", 1)[0].strip()
+                        if ct and (
+                            any(ct.startswith(p) for p in _BINARY_MIME_PREFIXES)
+                            or ct in _BINARY_MIME_EXACT
+                        ):
+                            self._bump("content_skip")
+                            return FetchResponse(False, "skipped", final_status, final_url, "")
+
+                        # ── Stream body + truncate + memory spike guard ──
+                        chunks: list[bytes] = []
+                        total = 0
+                        timed_out_empty = False
+                        binary_sniff = False
+
+                        try:
+                            for chunk in resp.iter_content(chunk_size=65536):
+                                if not chunk:
+                                    continue
+                                if time.monotonic() > deadline_ts:
+                                    if total == 0:
+                                        timed_out_empty = True
+                                    break
+                                if ct in ("", "application/octet-stream") and total == 0:
+                                    head = chunk[:512]
+                                    if b"\x00" in head or any(
+                                        head.startswith(m) for m in _BINARY_MAGIC_BYTES
+                                    ):
+                                        binary_sniff = True
+                                        break
+                                allowed = max_bytes - total
+                                if allowed <= 0:
+                                    break
+                                chunks.append(chunk[:allowed])
+                                total += len(chunks[-1])
+                                if total >= max_bytes:
+                                    break
+                        except RequestsError as e:
+                            self._record_host(
+                                (urllib.parse.urlparse(final_url).hostname or "").lower(), False
+                            )
+                            return self._map_curl_error(e, final_url)
+
+                        if binary_sniff:
+                            self._bump("content_skip")
+                            return FetchResponse(False, "skipped", final_status, final_url, "")
+
+                        if timed_out_empty:
+                            self._bump("timeout_empty")
+                            return FetchResponse(False, "transient", final_status, final_url, "")
+
+                        raw = b"".join(chunks)
+                        try:
+                            text = raw.decode(final_encoding, errors="ignore")
+                        except LookupError:
+                            text = raw.decode("utf-8", errors="ignore")
+
+                        return FetchResponse(True, "ok", final_status, final_url, text)
+
                     return FetchResponse(False, "transient", final_status, current_url, "")
-
-                if 300 <= final_status < 400:
-                    loc = (resp.headers.get("Location") or "").strip()
-                    if not loc:
-                        return FetchResponse(False, "transient", final_status, current_url, "")
-                    next_url = urllib.parse.urldefrag(
-                        urllib.parse.urljoin(current_url, loc)
-                    )[0]
-                    key = next_url.lower()
-                    if key in visited_urls:
-                        self._bump("redirect_loop")
-                        return FetchResponse(False, "transient", final_status, current_url, "")
-                    visited_urls.add(key)
-                    current_url = next_url
-                    continue
-
-                if 200 <= final_status < 300:
-                    keep_open = True
-                    final_url = current_url
-                    self._record_host(host, True)
-                    break
-
-                return FetchResponse(False, "transient", final_status, current_url, "")
-            finally:
-                if not keep_open and resp is not None:
+                finally:
                     try:
                         resp.close()
                     except Exception:
                         pass
-                    resp = None
 
-        final_url = current_url
-        if not keep_open or resp is None:
-            return FetchResponse(False, "transient", final_status, final_url, "")
-
-        # ── Pre-check Content-Length (hanya uncompressed, toleran Value/TypeError) ──
-        has_enc = bool(resp.headers.get("Content-Encoding"))
-        if not has_enc:
-            cl_raw = resp.headers.get("Content-Length")
-            try:
-                cl = int(cl_raw) if cl_raw is not None else 0
-            except (ValueError, TypeError):
-                cl = 0
-            if cl > max_bytes * 15:
-                self._bump("size_guard")
-                try:
-                    resp.close()
-                except Exception:
-                    pass
-                return FetchResponse(False, "skipped", final_status, final_url, "")
-
-        # ── Blacklist Content-Type (bukan whitelist) ──
-        ct = ct_raw.lower().split(";", 1)[0].strip()
-        if ct and (
-            any(ct.startswith(p) for p in _BINARY_MIME_PREFIXES)
-            or ct in _BINARY_MIME_EXACT
-        ):
-            self._bump("content_skip")
-            try:
-                resp.close()
-            except Exception:
-                pass
-            return FetchResponse(False, "skipped", final_status, final_url, "")
-
-        # ── Stream body + truncate + memory spike guard ──
-        chunks: list[bytes] = []
-        total = 0
-        timed_out_empty = False
-        binary_sniff = False
-
-        try:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                if time.monotonic() > deadline_ts:
-                    if total == 0:
-                        timed_out_empty = True
-                    break
-                if ct in ("", "application/octet-stream") and total == 0:
-                    head = chunk[:512]
-                    if b"\x00" in head or any(
-                        head.startswith(m) for m in _BINARY_MAGIC_BYTES
-                    ):
-                        binary_sniff = True
-                        break
-                allowed = max_bytes - total
-                if allowed <= 0:
-                    break
-                chunks.append(chunk[:allowed])
-                total += len(chunks[-1])
-                if total >= max_bytes:
-                    break
-        except RequestsError as e:
-            self._record_host(
-                (urllib.parse.urlparse(final_url).hostname or "").lower(), False
-            )
-            return self._map_curl_error(e, final_url)
-        finally:
-            try:
-                resp.close()
-            except Exception:
-                pass
-
-        if binary_sniff:
-            self._bump("content_skip")
-            return FetchResponse(False, "skipped", final_status, final_url, "")
-
-        if timed_out_empty:
-            self._bump("timeout_empty")
-            return FetchResponse(False, "transient", final_status, final_url, "")
-
-        raw = b"".join(chunks)
-        try:
-            text = raw.decode(final_encoding, errors="ignore")
-        except LookupError:
-            text = raw.decode("utf-8", errors="ignore")
-
-        return FetchResponse(True, "ok", final_status, final_url, text)
+        return FetchResponse(False, "transient", final_status, current_url, "")
