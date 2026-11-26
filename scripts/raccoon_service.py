@@ -87,7 +87,8 @@ def route(cfg,state):
             text=src.read_text(encoding="utf-8")
         except (OSError,UnicodeError,ValueError) as e:
             print(f"[HOLD] {src}: {e}"); continue
-        dest,confidence,reason=target_for(src,text,state)\n        if not cfg.get("auto_route", True): dest,confidence,reason=None,0.0,"automatic routing disabled by config"
+        dest,confidence,reason=target_for(src,text,state)
+        if not cfg.get("auto_route", True): dest,confidence,reason=None,0.0,"automatic routing disabled by config"
         if dest is None or confidence<threshold:
             bucket=DROP/"_review"/rel
         elif dest.exists():
