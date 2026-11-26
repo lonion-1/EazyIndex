@@ -329,6 +329,10 @@ class IndexerState:
                 ],
             )
 
+        self._dirty_seen.clear()
+        self._dirty_vetoed.clear()
+        self._dirty_qdone.clear()
+
         CAND_DIR.mkdir(parents=True, exist_ok=True)
         export_max = int(R.get("export_max", 40000))
 
