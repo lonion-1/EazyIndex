@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EazyWhale
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Router mesin pencari (SearXNG auto-discovery + HTML fallback) & pembersih redirect SERP."""
 
@@ -8,6 +8,7 @@ import base64
 import html
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -15,8 +16,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from pathlib import Path
 
 from ..text_utils import registrable_domain, strip_tags
 
