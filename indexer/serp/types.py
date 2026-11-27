@@ -10,6 +10,7 @@ from dataclasses import dataclass
 @dataclass(slots=True)
 class SerpHit:
     """Representasi satu hasil SERP sebelum disaring."""
+
     url: str
     title: str
     snippet: str
@@ -20,6 +21,7 @@ class SerpHit:
 @dataclass(slots=True)
 class SerpCandidate:
     """Hasil akhir filter yang siap dilempar ke chainlink/crawler."""
+
     kind: str  # "target", "shortlink", "passthrough"
     url: str
     domain: str
