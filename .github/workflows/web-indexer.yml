@@ -37,10 +37,10 @@ jobs:
       - name: Ambil isi repo
         uses: actions/checkout@v4
 
-      - name: Pasang Python 3.12
-        uses: actions/setup-python@v5
+      - name: Pasang Python 3.15 Free-Threaded
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.15'
+          python-version: '3.15t'
 
       - name: Pasang dependensi Python
         run: |
