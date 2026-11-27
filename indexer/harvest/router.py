@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Weighted provider routing berdasarkan locale (gl)."""
+
 from __future__ import annotations
 
 import random
@@ -14,8 +15,11 @@ def choose_source(
     disabled: set[str],
 ) -> str | None:
     table = routing_override.get(gl, routing_default)
-    active = [(src, w) for src, w in table.items()
-              if src in available and src not in disabled and w > 0]
+    active = [
+        (src, w)
+        for src, w in table.items()
+        if src in available and src not in disabled and w > 0
+    ]
     if not active:
         return None
     names, weights = zip(*active)
