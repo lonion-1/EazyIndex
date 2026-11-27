@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import argparse
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import reporting
 from .config import HarvestConfig, load_auto_suggest
@@ -18,9 +20,9 @@ from .query_builder import build_probe_query, clean_suggestion
 from .router import choose_source
 
 try:
-    from indexer.config_loader import IndexerConfig
+    from indexer.config_loader import IndexerConfig, load_indexer_config
 except ImportError:
-    from config_loader import IndexerConfig
+    from config_loader import IndexerConfig, load_indexer_config
 
 
 @dataclass
@@ -168,12 +170,58 @@ def harvest_autocomplete(
     }
     reporting.write_summary(result, dry=dry)
     return result
-    total_pool = len(load_feed(FEED_FILE))
-    result = {
-        "requests": stats.requests,
-        "accepted": accepted,
-        "pool": total_pool,
-        "sources": stats.hits_by_src,
-    }
-    reporting.write_summary(result, dry=dry)
-    return result
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parsing argumen CLI untuk modul auto_seed."""
+    parser = argparse.ArgumentParser(
+        description="Panen saran kata kunci autocomplete ke feed_cache.py."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulasi tanpa menyimpan perubahan ke feed_cache.",
+    )
+    parser.add_argument(
+        "--max-req",
+        type=int,
+        default=30,
+        help="Batas maksimal permintaan autocomplete (default: 30).",
+    )
+    parser.add_argument(
+        "--cats",
+        type=str,
+        default="",
+        help="Batasi kategori dipisahkan koma (kosong = semua).",
+    )
+    parser.add_argument(
+        "--config-dir",
+        type=Path,
+        default=None,
+        help="Direktori konfigurasi TOML (default: ./config).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entrypoint CLI saat dijalankan via `python3 -m indexer.harvest.auto_seed`."""
+    args = _parse_args(argv)
+    cfg = load_indexer_config(args.config_dir)
+    cats = {c.strip().lower() for c in args.cats.split(",") if c.strip()} or None
+
+    res = harvest_autocomplete(
+        cfg,
+        max_req=max(1, args.max_req),
+        cats=cats,
+        dry=args.dry_run,
+    )
+    print(
+        f"[AUTO-SEED] selesai: requests={res['requests']}, "
+        f"accepted={res['accepted']}, pool={res['pool']}, "
+        f"sources={res['sources']}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
