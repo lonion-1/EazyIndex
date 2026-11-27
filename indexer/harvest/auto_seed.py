@@ -7,7 +7,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from ..indexer.config_loader import IndexerConfig
+from .config_loader import IndexerConfig
 from . import reporting
 from .config import HarvestConfig, load_auto_suggest
 from ..discovery.feed_cache import FEED_FILE, load_feed, push_candidates
