@@ -1,7 +1,6 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pemanen saran kata kunci (multi-provider autocomplete) -> feed_cache.py."""
-
 from __future__ import annotations
 
 import random
@@ -11,6 +10,7 @@ from ..config_loader import IndexerConfig
 from . import reporting
 from .config import HarvestConfig, load_auto_suggest
 from discovery.feed_cache import FEED_FILE, load_feed, push_candidates
+from .filters import FilterEngine
 from .http_client import HttpClient
 from .locale_detect import LocaleDetector
 from .providers import ProviderBlocked, ProviderError, load_providers
@@ -30,20 +30,15 @@ class HarvestStats:
         self.err_by_src[src] = 0
 
 
-def _seed_pool(
-    cfg: IndexerConfig, cat: str, existing_feed: dict, chain_k: int
-) -> list[str]:
+def _seed_pool(cfg: IndexerConfig, cat: str, existing_feed: dict, chain_k: int) -> list[str]:
     q_cfg = cfg.categories[cat].queries_cfg
-    base = list(
-        dict.fromkeys(
-            s.strip()
-            for s in (list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", [])))
-            if s and s.strip()
-        )
-    )
+    base = list(dict.fromkeys(
+        s.strip()
+        for s in (list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", [])))
+        if s and s.strip()
+    ))
     chained = [
-        q
-        for (rcat, q), row in existing_feed.items()
+        q for (rcat, q), row in existing_feed.items()
         if rcat == cat and row.get("hits", 0) > 0
     ]
     sampled = random.sample(chained, k=min(chain_k, len(chained))) if chained else []
@@ -66,13 +61,27 @@ def harvest_autocomplete(
     detector = LocaleDetector.from_config(hcfg.locale)
     providers = load_providers(hcfg)
     client = HttpClient(hcfg.http)
+    filter_engine = FilterEngine.from_config(hcfg.filter)
+    brand_tokens_by_cat = {
+        c: list(cfg.categories[c].queries_cfg.get("brands", []))
+        for c in cfg.categories
+    }
+
     stats = HarvestStats()
     disabled: set[str] = set()
 
     existing_feed = load_feed(FEED_FILE)
     cat_names = [c for c in cfg.categories if not cats or c in cats]
     random.shuffle(cat_names)
-    per_cat_quota = max(h.get("per_cat_min", 2), max_req // max(1, len(cat_names)))
+    per_cat_quota = max(h.get("per_cat_min", 2),
+                        max_req // max(1, len(cat_names)))
+
+    min_words = h.get("min_words", 1)
+    max_words = h.get("max_words", 5)
+    min_len = h.get("min_len", 4)
+    max_len = h.get("max_len", 48)
+    require_portal = h.get("require_portal_or_brand", True)
+    reject_prefixes = tuple(h.get("reject_prefixes", ("http://", "https://")))
 
     for cat in cat_names:
         if stats.requests >= max_req:
@@ -99,17 +108,30 @@ def harvest_autocomplete(
                 break
 
             provider = providers[source]
-            q_query = build_probe_query(seed, cat, year, hcfg.probe, hcfg.modifiers)
+            q_query = build_probe_query(
+                seed, cat, year, hcfg.probe, hcfg.modifiers, hl=hl
+            )
             stats.requests += 1
 
             try:
                 suggestions = client.fetch(provider, q_query, hl, gl)
                 for s in suggestions:
-                    clean = clean_suggestion(
+                    if not filter_engine.accept(
                         s,
-                        min_len=h.get("min_seed_len", 4),
-                        max_len=h.get("max_seed_len", 72),
-                        reject_prefixes=tuple(h.get("reject_prefixes", ())),
+                        cat=cat,
+                        hl=hl,
+                        brand_tokens=brand_tokens_by_cat.get(cat, ()),
+                        require_portal_or_brand=require_portal,
+                        min_words=min_words,
+                        max_words=max_words,
+                        min_len=min_len,
+                        max_len=max_len,
+                        reject_prefixes=reject_prefixes,
+                    ):
+                        continue
+                    clean = clean_suggestion(
+                        s, min_len=min_len, max_len=max_len,
+                        reject_prefixes=reject_prefixes,
                     )
                     if clean:
                         stats.candidates.append((clean, cat, f"suggest:{source}"))
@@ -127,6 +149,15 @@ def harvest_autocomplete(
             client.sleep_jitter()
 
     accepted = push_candidates(cfg, stats.candidates, dry=dry)
+    total_pool = len(load_feed(FEED_FILE))
+    result = {
+        "requests": stats.requests,
+        "accepted": accepted,
+        "pool": total_pool,
+        "sources": stats.hits_by_src,
+    }
+    reporting.write_summary(result, dry=dry)
+    return result
     total_pool = len(load_feed(FEED_FILE))
     result = {
         "requests": stats.requests,
