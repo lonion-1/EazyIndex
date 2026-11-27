@@ -2,9 +2,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """
 Upstream Intersection & Domain-Hint Learner (Tahap Akhir).
-Mengintip list besar (mis. HaGeZi / OISD) HANYA untuk mengecek domain yang sudah
-tertangkap oleh sistem kita sendiri (tidak pernah menyalin isi list besar).
-Jika beririsan -> tambah skor keyakinan & ekstrak 'domain_hints' baru yang sering muncul.
 """
 
 from __future__ import annotations
