@@ -15,7 +15,7 @@ import urllib.parse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from .config_loader import ConfigError, IndexerConfig, load_indexer_config
-from .discovery.auto_seed import harvest_autocomplete
+from .harvest.auto_seed import harvest_autocomplete
 from .discovery.engines import EnginePool, SearchHit, build_engine_pool
 from .discovery.feed_cache import report_query_outcome
 from .discovery.queries import build_mirror_queries, pick_run_queries
