@@ -20,6 +20,28 @@ DEFAULT_CONFIG_PATH = Path(
     os.environ.get("EAZY_AUTO_SUGGEST_CFG", "EazyVault/config/auto_suggest.toml")
 )
 
+_FALLBACK_CONFIG_PATHS: tuple[Path, ...] = (
+    Path("config/auto_suggest.toml"),
+    Path("_vault/_config/auto_suggest.toml"),
+    Path("EazyVault/config/auto_suggest.toml"),
+)
+
+
+def _resolve_config_path(path: str | Path | None = None) -> Path:
+    """Cari lokasi file auto_suggest.toml di jalur aktif maupun vault."""
+    if path is not None:
+        return Path(path)
+
+    env_cfg = os.environ.get("EAZY_AUTO_SUGGEST_CFG", "").strip()
+    if env_cfg:
+        return Path(env_cfg).expanduser()
+
+    for candidate in _FALLBACK_CONFIG_PATHS:
+        if candidate.is_file():
+            return candidate
+
+    return DEFAULT_CONFIG_PATH
+
 
 @dataclass(frozen=True)
 class HarvestConfig:
@@ -79,6 +101,7 @@ class HarvestConfig:
 
 
 def load_auto_suggest(path: str | Path | None = None) -> HarvestConfig:
-    p = Path(path) if path else DEFAULT_CONFIG_PATH
+    """Muat konfigurasi auto_suggest.toml dari path eksplisit atau fallback."""
+    p = _resolve_config_path(path)
     with p.open("rb") as f:
         return HarvestConfig(raw=tomllib.load(f))
