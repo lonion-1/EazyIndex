@@ -1,0 +1,32 @@
+name: Test Auto Seed Harvest
+
+on:
+  push: # Jalan otomatis di branch mana pun saat push
+  pull_request: # Jalan otomatis saat ada PR ke branch mana pun
+  workflow_dispatch: # Bisa dijalankan manual lewat tombol di tab Actions
+
+jobs:
+  test-harvest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (Auto-detect)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install -e .; fi
+
+      - name: Run harvest_autocomplete dry run test
+        env:
+          PYTHONPATH: .:src # Otomatis mencari modul di root maupun folder src/
+        run: |
+          python -c "from indexer.config_loader import load_indexer_config; from indexer.harvest.auto_seed import harvest_autocomplete; print(harvest_autocomplete(load_indexer_config(), max_req=3, dry=True))"
+          
