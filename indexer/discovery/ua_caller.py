@@ -36,7 +36,9 @@ class EngineClientProfile:
 
 def _clean_ua_list(raw: object, fallback: tuple[str, ...]) -> tuple[str, ...]:
     if isinstance(raw, (list, tuple)):
-        cleaned = tuple(dict.fromkeys(str(item).strip() for item in raw if str(item).strip()))
+        cleaned = tuple(
+            dict.fromkeys(str(item).strip() for item in raw if str(item).strip())
+        )
         if cleaned:
             return cleaned
     return fallback
@@ -75,7 +77,11 @@ class UACaller:
             if not name:
                 continue
             dev_raw = str(raw_val.get("device", "desktop")).strip().lower()
-            device = DeviceKind.MOBILE if dev_raw == DeviceKind.MOBILE else DeviceKind.DESKTOP
+            device = (
+                DeviceKind.MOBILE
+                if dev_raw == DeviceKind.MOBILE
+                else DeviceKind.DESKTOP
+            )
             accept_lang = str(raw_val.get("accept_lang", "")).strip()
             parsed_profiles[name] = EngineClientProfile(
                 device=device,
@@ -93,7 +99,11 @@ class UACaller:
         if not engine_name:
             return EngineClientProfile()
         base_name = engine_name.split("@", 1)[0]
-        return self.profiles.get(base_name) or self.profiles.get(engine_name) or EngineClientProfile()
+        return (
+            self.profiles.get(base_name)
+            or self.profiles.get(engine_name)
+            or EngineClientProfile()
+        )
 
     def pick_desktop_ua(self) -> str:
         """Pilih satu User-Agent desktop secara acak."""
@@ -123,4 +133,3 @@ class UACaller:
         if extra:
             headers.update(extra)
         return headers
-      
