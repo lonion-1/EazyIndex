@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Build probe query & clean suggestion."""
+
 from __future__ import annotations
 
 import random
