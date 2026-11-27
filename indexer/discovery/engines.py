@@ -271,9 +271,7 @@ def _refresh_searx_cache_bg(
 
         verified: list[str] = []
         with ThreadPoolExecutor(max_workers=8) as ex:
-            futs = {
-                ex.submit(_probe_searxng_json, u, 3.5, caller): u for u in to_probe
-            }
+            futs = {ex.submit(_probe_searxng_json, u, 3.5, caller): u for u in to_probe}
             for fut in as_completed(futs):
                 ok = fut.result()
                 if ok:
