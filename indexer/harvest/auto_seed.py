@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pemanen saran kata kunci (multi-provider autocomplete) -> feed_cache.py."""
+
 from __future__ import annotations
 
 import random
@@ -29,15 +30,20 @@ class HarvestStats:
         self.err_by_src[src] = 0
 
 
-def _seed_pool(cfg: IndexerConfig, cat: str, existing_feed: dict, chain_k: int) -> list[str]:
+def _seed_pool(
+    cfg: IndexerConfig, cat: str, existing_feed: dict, chain_k: int
+) -> list[str]:
     q_cfg = cfg.categories[cat].queries_cfg
-    base = list(dict.fromkeys(
-        s.strip()
-        for s in (list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", [])))
-        if s and s.strip()
-    ))
+    base = list(
+        dict.fromkeys(
+            s.strip()
+            for s in (list(q_cfg.get("fillers", [])) + list(q_cfg.get("brands", [])))
+            if s and s.strip()
+        )
+    )
     chained = [
-        q for (rcat, q), row in existing_feed.items()
+        q
+        for (rcat, q), row in existing_feed.items()
         if rcat == cat and row.get("hits", 0) > 0
     ]
     sampled = random.sample(chained, k=min(chain_k, len(chained))) if chained else []
@@ -66,8 +72,7 @@ def harvest_autocomplete(
     existing_feed = load_feed(FEED_FILE)
     cat_names = [c for c in cfg.categories if not cats or c in cats]
     random.shuffle(cat_names)
-    per_cat_quota = max(h.get("per_cat_min", 2),
-                        max_req // max(1, len(cat_names)))
+    per_cat_quota = max(h.get("per_cat_min", 2), max_req // max(1, len(cat_names)))
 
     for cat in cat_names:
         if stats.requests >= max_req:
