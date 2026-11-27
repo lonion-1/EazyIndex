@@ -16,19 +16,20 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
 
-DEFAULT_CONFIG_PATH = Path(
-    os.environ.get("EAZY_AUTO_SUGGEST_CFG", "EazyVault/config/auto_suggest.toml")
-)
+ROOT = Path(__file__).resolve().parents[2]
 
-_FALLBACK_CONFIG_PATHS: tuple[Path, ...] = (
+DEFAULT_CONFIG_PATH = ROOT / "config" / "auto_suggest.toml"
+
+_FALLBACK_REL_PATHS: tuple[Path, ...] = (
     Path("config/auto_suggest.toml"),
+    Path("_vault/config/auto_suggest.toml"),
     Path("_vault/_config/auto_suggest.toml"),
     Path("EazyVault/config/auto_suggest.toml"),
 )
 
 
 def _resolve_config_path(path: str | Path | None = None) -> Path:
-    """Cari lokasi file auto_suggest.toml di jalur aktif maupun vault."""
+    """Cari lokasi file auto_suggest.toml dari argumen, env, CWD, atau ROOT repo."""
     if path is not None:
         return Path(path)
 
@@ -36,9 +37,11 @@ def _resolve_config_path(path: str | Path | None = None) -> Path:
     if env_cfg:
         return Path(env_cfg).expanduser()
 
-    for candidate in _FALLBACK_CONFIG_PATHS:
-        if candidate.is_file():
-            return candidate
+    for base in (Path.cwd(), ROOT):
+        for rel in _FALLBACK_REL_PATHS:
+            candidate = base / rel
+            if candidate.is_file():
+                return candidate
 
     return DEFAULT_CONFIG_PATH
 
