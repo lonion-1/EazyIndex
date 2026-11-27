@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """OSINT quality gate: buang noise, tegakkan portal/brand signal."""
+
 from __future__ import annotations
 
 import re
@@ -71,7 +72,10 @@ class FilterEngine:
 
     def has_portal_signal(self, text: str, lf: LocaleFilter) -> bool:
         low = text.lower()
-        tokens = re.split(r"[^0-9a-z\u00C0-\u024F\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FAF\uAC00-\uD7AF]+", low)
+        tokens = re.split(
+            r"[^0-9a-z\u00C0-\u024F\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FAF\uAC00-\uD7AF]+",
+            low,
+        )
         token_set = set(t for t in tokens if t)
         # 1) keyword portal utuh
         for kw in lf.portal_keywords:
