@@ -11,38 +11,51 @@ class SerpPolicy(ABC):
     """Kontrak untuk manajemen domain (shortener, protected, dll)."""
 
     @abstractmethod
-    def is_shortener(self, host: str) -> bool:
-        ...
+    def is_shortener(self, host: str) -> bool: ...
 
     @abstractmethod
-    def registrable(self, host: str) -> str | None:
-        ...
+    def registrable(self, host: str) -> str | None: ...
 
     @abstractmethod
-    def is_protected(self, domain: str) -> bool:
-        ...
+    def is_protected(self, domain: str) -> bool: ...
 
     @abstractmethod
-    def is_ignored(self, domain: str) -> bool:
-        ...
+    def is_ignored(self, domain: str) -> bool: ...
 
     @abstractmethod
-    def is_passthrough(self, domain: str) -> bool:
-        ...
+    def is_passthrough(self, domain: str) -> bool: ...
 
 
 class DefaultPolicy(SerpPolicy):
     """Fallback sementara jika policy asli belum tersedia."""
 
     def __init__(self) -> None:
-        self._shorteners = frozenset({
-            "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "s.id",
-            "linktr.ee", "carrd.co", "bio.link", "beacons.ai",
-        })
-        self._protected = frozenset({
-            "google.com", "youtube.com", "wikipedia.org", "github.com",
-            "facebook.com", "instagram.com", "twitter.com", "tiktok.com",
-        })
+        self._shorteners = frozenset(
+            {
+                "bit.ly",
+                "tinyurl.com",
+                "t.co",
+                "goo.gl",
+                "ow.ly",
+                "s.id",
+                "linktr.ee",
+                "carrd.co",
+                "bio.link",
+                "beacons.ai",
+            }
+        )
+        self._protected = frozenset(
+            {
+                "google.com",
+                "youtube.com",
+                "wikipedia.org",
+                "github.com",
+                "facebook.com",
+                "instagram.com",
+                "twitter.com",
+                "tiktok.com",
+            }
+        )
         self._ignored = frozenset({"localhost"})
         self._passthrough = frozenset()
 
