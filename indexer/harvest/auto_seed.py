@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from ..config_loader import IndexerConfig
 from . import reporting
 from .config import HarvestConfig, load_auto_suggest
-from .feed_cache import FEED_FILE, load_feed, push_candidates
+from .discovery.feed_cache import FEED_FILE, load_feed, push_candidates
 from .filters import FilterEngine
 from .http_client import HttpClient
 from .locale_detect import LocaleDetector
