@@ -67,7 +67,7 @@ jobs:
           key: webindex-${{ github.run_id }}
           restore-keys: webindex-
 
-      - name: Panen Autocomplete Google Suggest
+      - name: Autocomplete Queries Suggest
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
