@@ -40,7 +40,13 @@ def evaluate_serp_hit(
     if not reg or pol.is_protected(reg) or pol.is_ignored(reg):
         return None
     if pol.is_passthrough(reg):
-        return {"kind": "passthrough", "url": hit.url, "d": reg, "cat": hit.category, "s": 4}
+        return {
+            "kind": "passthrough",
+            "url": hit.url,
+            "d": reg,
+            "cat": hit.category,
+            "s": 4,
+        }
 
     # Ambil data dari [serp_filter] (jika ada)
     sf = cfg_cat.get("serp_filter", {})
@@ -65,7 +71,9 @@ def evaluate_serp_hit(
     body_id = [w for w in id_terms if w in body_txt]
     has_identity = bool(name_hits or head_id or body_id)
 
-    fn_hits = [w for w in fn_terms if w in full_txt] if (has_identity or not id_terms) else []
+    fn_hits = (
+        [w for w in fn_terms if w in full_txt] if (has_identity or not id_terms) else []
+    )
     lure_hits = [w for w in lure_terms if w in full_txt]
 
     score = 0
@@ -121,4 +129,4 @@ def evaluate_serp_hit(
         "s": score,
         "bounces": 0,
         "trail": [{"bot": "web-index", "act": "serp_pass", "note": "; ".join(reasons)}],
-      }
+    }
