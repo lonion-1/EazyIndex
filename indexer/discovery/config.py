@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Loader untuk config/auto_suggest.toml."""
+
 from __future__ import annotations
 
 import os
@@ -35,8 +36,11 @@ class HarvestConfig:
 
     @property
     def providers(self) -> dict[str, dict]:
-        return {k: v for k, v in self.raw.get("Provider", {}).items()
-                if v.get("enabled", True)}
+        return {
+            k: v
+            for k, v in self.raw.get("Provider", {}).items()
+            if v.get("enabled", True)
+        }
 
     @property
     def routing_default(self) -> dict[str, float]:
@@ -44,7 +48,10 @@ class HarvestConfig:
 
     @property
     def routing_override(self) -> dict[str, dict[str, float]]:
-        return {k: v["providers"] for k, v in self.raw.get("Routing", {}).get("Override", {}).items()}
+        return {
+            k: v["providers"]
+            for k, v in self.raw.get("Routing", {}).get("Override", {}).items()
+        }
 
     @property
     def locale(self) -> dict[str, Any]:
