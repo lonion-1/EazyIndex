@@ -7,7 +7,6 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from ..config_loader import IndexerConfig
 from . import reporting
 from .config import HarvestConfig, load_auto_suggest
 from ..discovery.feed_cache import FEED_FILE, load_feed, push_candidates
@@ -17,7 +16,10 @@ from .locale_detect import LocaleDetector
 from .providers import ProviderBlocked, ProviderError, load_providers
 from .query_builder import build_probe_query, clean_suggestion
 from .router import choose_source
-
+try:
+    from indexer.config_loader import IndexerConfig
+except ImportError:
+    from config_loader import IndexerConfig
 
 @dataclass
 class HarvestStats:
