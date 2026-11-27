@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Provider registry TOML-driven."""
+
 from __future__ import annotations
 
 import json
@@ -35,7 +36,9 @@ class Provider:
     def build_url(self, q: str, hl: str, gl: str) -> str:
         kl = "id-id"
         if "kl_map" in self.spec:
-            kl = self.spec["kl_map"].get(f"{hl}-{gl}", self.spec.get("kl_fallback", "id-id"))
+            kl = self.spec["kl_map"].get(
+                f"{hl}-{gl}", self.spec.get("kl_fallback", "id-id")
+            )
         return self.spec["url"].format(q=urllib.parse.quote(q), hl=hl, gl=gl, kl=kl)
 
     def headers(self, hl: str, gl: str) -> dict[str, str]:
@@ -65,12 +68,18 @@ class Provider:
             return []
         if kind == "json_array_of_objects":
             kp = self.spec["key_path"]
-            return [it[kp] for it in data
-                    if isinstance(it, dict) and isinstance(it.get(kp), str)]
+            return [
+                it[kp]
+                for it in data
+                if isinstance(it, dict) and isinstance(it.get(kp), str)
+            ]
         if kind == "json_object_r":
             kp = self.spec["key_path"]
-            return [it[kp] for it in data.get("r", [])
-                    if isinstance(it, dict) and isinstance(it.get(kp), str)]
+            return [
+                it[kp]
+                for it in data.get("r", [])
+                if isinstance(it, dict) and isinstance(it.get(kp), str)
+            ]
         raise ProviderParseError(f"{self.name}: unknown kind '{kind}'")
 
 
