@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Router mesin pencari (SearXNG auto-discovery + HTML fallback) & pembersih redirect SERP."""
 
-from __future__ import annotations
-
 import base64
 import html
 import json
@@ -16,17 +14,25 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..text_utils import registrable_domain, strip_tags
+from .ua_caller import UACaller
+
+type SearchResult = tuple[str, list[SearchHit]]
 
 SEARX_SPACE_URL = "https://searx.space/data/instances.json"
-_PROBE_UAS: list[str] = []
+_DEFAULT_UA_CALLER = UACaller.from_config({})
 
 RE_A = re.compile(
     r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE
+)
+
+# Batas tag pembuka elemen struktur SERP agar ekstraksi snippet berhenti sebelum hasil berikutnya
+RE_SNIPPET_BOUNDARY = re.compile(
+    r"<(?:a|article|section|li|tr|h[1-6]|header|footer|nav|form)\b",
+    re.IGNORECASE,
 )
 
 ENGINE_NOISE_DOMAINS = frozenset(
@@ -172,7 +178,7 @@ _DISCOVERY_LOCK = threading.Lock()
 _DISCOVERY_RUNNING = False
 
 
-@dataclass
+@dataclass(slots=True)
 class SearchHit:
     url: str
     title: str = ""
@@ -180,11 +186,16 @@ class SearchHit:
     engine: str = ""
 
 
-def _http_get_raw(url: str, timeout: float = 5.0) -> str:
+def _http_get_raw(
+    url: str,
+    timeout: float = 5.0,
+    ua_caller: UACaller | None = None,
+) -> str:
+    caller = ua_caller or _DEFAULT_UA_CALLER
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": PROBE_UA,
+            "User-Agent": caller.pick_desktop_ua(),
             "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
             "Accept-Encoding": "identity",
         },
@@ -195,11 +206,15 @@ def _http_get_raw(url: str, timeout: float = 5.0) -> str:
         return resp.read(512_000).decode("utf-8", errors="ignore")
 
 
-def _probe_searxng_json(base_url: str, timeout: float = 3.5) -> str | None:
+def _probe_searxng_json(
+    base_url: str,
+    timeout: float = 3.5,
+    ua_caller: UACaller | None = None,
+) -> str | None:
     base = base_url.rstrip("/")
     test_url = f"{base}/search?q=wikipedia&format=json&pageno=1&safesearch=0&categories=general"
     try:
-        raw = _http_get_raw(test_url, timeout=timeout)
+        raw = _http_get_raw(test_url, timeout=timeout, ua_caller=ua_caller)
         if not raw:
             return None
         data = json.loads(raw)
@@ -216,11 +231,13 @@ def _refresh_searx_cache_bg(
     max_latency: float,
     cache_path: str,
     pool_ref: EnginePool | None = None,
+    ua_caller: UACaller | None = None,
 ) -> None:
     global _DISCOVERY_RUNNING
+    caller = ua_caller or _DEFAULT_UA_CALLER
     try:
         try:
-            raw_dir = _http_get_raw(SEARX_SPACE_URL, timeout=8.0)
+            raw_dir = _http_get_raw(SEARX_SPACE_URL, timeout=8.0, ua_caller=caller)
             directory = json.loads(raw_dir).get("instances", {})
         except Exception:
             return
@@ -254,7 +271,9 @@ def _refresh_searx_cache_bg(
 
         verified: list[str] = []
         with ThreadPoolExecutor(max_workers=8) as ex:
-            futs = {ex.submit(_probe_searxng_json, u, 3.5): u for u in to_probe}
+            futs = {
+                ex.submit(_probe_searxng_json, u, 3.5, caller): u for u in to_probe
+            }
             for fut in as_completed(futs):
                 ok = fut.result()
                 if ok:
@@ -274,7 +293,9 @@ def _refresh_searx_cache_bg(
             except OSError:
                 pass
             if pool_ref is not None:
-                pool_ref.inject_engines([SearxngEngine(u) for u in verified])
+                pool_ref.inject_engines(
+                    [SearxngEngine(u, ua_caller=caller) for u in verified]
+                )
     finally:
         with _DISCOVERY_LOCK:
             _DISCOVERY_RUNNING = False
@@ -384,13 +405,18 @@ def _extract_trailing_snippet(raw_html: str, anchor_end: int, title: str) -> str
 
 
 class SearxngEngine:
-    def __init__(self, base: str):
+    def __init__(self, base: str, ua_caller: UACaller | None = None):
         self.base = base.rstrip("/")
         self.name = "searxng@" + urllib.parse.urlparse(self.base).netloc
+        self.ua_caller = ua_caller or _DEFAULT_UA_CALLER
+
+    def next_headers(self) -> dict[str, str]:
+        """Siapkan header User-Agent & Accept-Language untuk sesi request berikutnya."""
+        return self.ua_caller.build_headers(self.name)
 
     def search(
         self, http, q: str, page: int, deadline_ts: float, lang: str
-    ) -> tuple[str, list[SearchHit]]:
+    ) -> SearchResult:
         url = (
             f"{self.base}/search?q={urllib.parse.quote_plus(q)}&format=json&pageno={page}"
             f"&language={urllib.parse.quote_plus(lang or 'id')}&safesearch=0&categories=general"
@@ -444,6 +470,7 @@ class HtmlSearchEngine:
         start_offset: int = 0,
         default_lang: str = "",
         waf_signatures: tuple[str, ...] = (),
+        ua_caller: UACaller | None = None,
     ):
         self.name = name
         self.template = template
@@ -453,11 +480,16 @@ class HtmlSearchEngine:
         self.start_offset = max(0, int(start_offset))
         self.default_lang = default_lang.strip()
         self.waf_signatures = waf_signatures
+        self.ua_caller = ua_caller or _DEFAULT_UA_CALLER
         host = urllib.parse.urlparse(template).netloc.lower()
         self.root = registrable_domain(host, multi_tlds)
         self.supports_paging = any(
             tok in template for tok in ("{page}", "{page1}", "{offset}", "{offset1}")
         )
+
+    def next_headers(self) -> dict[str, str]:
+        """Siapkan header User-Agent (desktop/mobile) & Accept-Language profil engine."""
+        return self.ua_caller.build_headers(self.name)
 
     def _build_url(self, q: str, page: int, lang: str) -> str:
         offset = self.start_offset + (page - 1) * self.step
@@ -473,7 +505,7 @@ class HtmlSearchEngine:
 
     def search(
         self, http, q: str, page: int, deadline_ts: float, lang: str
-    ) -> tuple[str, list[SearchHit]]:
+    ) -> SearchResult:
         if page > 1 and not self.supports_paging:
             return "ok", []
 
@@ -524,7 +556,7 @@ class HtmlSearchEngine:
 
 
 class EnginePool:
-    """Zero-sleep anti-bias search router (break -> disable -> runtime recovery)."""
+    """Router pencarian anti-bias tanpa jeda (break -> matikan sementara -> pulih dinamis)."""
 
     def __init__(
         self,
@@ -533,6 +565,7 @@ class EnginePool:
         max_empty_tries: int = 3,
         max_engines_per_query: int = 5,
         stop_after_good_hits: int = 12,
+        ua_caller: UACaller | None = None,
     ):
         self._lock = threading.Lock()
         self._started_at = time.monotonic()
@@ -541,6 +574,7 @@ class EnginePool:
         self.max_empty_tries = max(1, max_empty_tries)
         self.max_engines_per_query = max(1, int(max_engines_per_query))
         self.stop_after_good_hits = max(1, int(stop_after_good_hits))
+        self.ua_caller = ua_caller or _DEFAULT_UA_CALLER
         self.disabled_at: dict[str, float] = {e.name: 0.0 for e in engines}
         self.empty_streak: dict[str, int] = {e.name: 0 for e in engines}
         self.last_used: dict[str, float] = {e.name: 0.0 for e in engines}
@@ -631,7 +665,7 @@ class EnginePool:
             elif page == 1:
                 with self._lock:
                     self.empty_streak[e.name] = self.empty_streak.get(e.name, 0) + 1
-                    if self.empty_streak[e.name] >= 3:
+                    if self.empty_streak[e.name] >= self.max_empty_tries:
                         self.disabled_at[e.name] = time.monotonic()
                         self.empty_streak[e.name] = 0
 
@@ -642,8 +676,10 @@ def build_engine_pool(
     ec: dict, multi_tlds: frozenset[str], only: set[str] | None = None
 ) -> EnginePool:
     global _DISCOVERY_RUNNING
+    ua_caller = UACaller.from_config(ec)
+
     if not bool(ec.get("enabled", True)):
-        return EnginePool([])
+        return EnginePool([], ua_caller=ua_caller)
 
     engines: list = []
     want_searx = not only or "searxng" in only
@@ -673,7 +709,7 @@ def build_engine_pool(
                 need_bg_refresh = True
 
         for u in dict.fromkeys(urls):
-            engines.append(SearxngEngine(u))
+            engines.append(SearxngEngine(u, ua_caller=ua_caller))
 
     wave_timeouts: dict[str, float] = {}
     for wcfg in (ec.get("waves") or {}).values():
@@ -705,6 +741,7 @@ def build_engine_pool(
                     start_offset=int(pg.get("start_offset", 0)),
                     default_lang=str(prof.get("lang", "")),
                     waf_signatures=waf_patterns,
+                    ua_caller=ua_caller,
                 )
             )
 
@@ -717,6 +754,7 @@ def build_engine_pool(
         max_empty_tries=int(ec.get("max_empty_tries", 3)),
         max_engines_per_query=int(ec.get("max_engines_per_query", 5)),
         stop_after_good_hits=int(ec.get("stop_after_good_hits", 12)),
+        ua_caller=ua_caller,
     )
 
     if want_searx and bool(ec.get("auto_discover", False)) and need_bg_refresh:
@@ -731,6 +769,7 @@ def build_engine_pool(
                         float(ec.get("max_latency", 2.5)),
                         cache_path,
                         pool,
+                        ua_caller,
                     ),
                     daemon=True,
                 )
