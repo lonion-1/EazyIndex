@@ -16,10 +16,12 @@ from .locale_detect import LocaleDetector
 from .providers import ProviderBlocked, ProviderError, load_providers
 from .query_builder import build_probe_query, clean_suggestion
 from .router import choose_source
+
 try:
     from indexer.config_loader import IndexerConfig
 except ImportError:
     from config_loader import IndexerConfig
+
 
 @dataclass
 class HarvestStats:
