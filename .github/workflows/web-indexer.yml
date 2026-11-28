@@ -123,6 +123,11 @@ jobs:
           echo "[INFO] Isi config/: $(ls -1 config)"
           echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
 
+      - name: Pastikan direktori cache valid
+        run: |
+          [ -f ".cache/webindex" ] && rm -f ".cache/webindex"
+          mkdir -p .cache/webindex
+          
       - name: Pulihkan cache indeks
         uses: actions/cache/restore@v4
         with:
