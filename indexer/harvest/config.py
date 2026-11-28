@@ -53,34 +53,43 @@ class HarvestConfig:
     # --- shortcuts ---
     @property
     def http(self) -> dict[str, Any]:
-        return self.raw["HTTP"]
+        return self.raw.get("HTTP", {})
 
     @property
     def ua_pool(self) -> list[str]:
-        return self.raw["HTTP"]["UserAgents"]["pool"]
+        return self.http.get("UserAgents", {}).get("pool", [])
 
     @property
     def providers(self) -> dict[str, dict]:
         return {
             k: v
             for k, v in self.raw.get("Provider", {}).items()
-            if v.get("enabled", True)
+            if isinstance(v, dict) and v.get("enabled", True)
         }
 
     @property
     def routing_default(self) -> dict[str, float]:
-        return self.raw["Routing"]["Default"]["providers"]
+        default_blk = self.raw.get("Routing", {}).get("Default", {})
+        if isinstance(default_blk, dict):
+            if "providers" in default_blk and isinstance(default_blk["providers"], dict):
+                return default_blk["providers"]
+            return default_blk
+        return {}
 
     @property
     def routing_override(self) -> dict[str, dict[str, float]]:
-        return {
-            k: v["providers"]
-            for k, v in self.raw.get("Routing", {}).get("Override", {}).items()
-        }
+        out: dict[str, dict[str, float]] = {}
+        for k, v in self.raw.get("Routing", {}).get("Override", {}).items():
+            if isinstance(v, dict):
+                if "providers" in v and isinstance(v["providers"], dict):
+                    out[k] = v["providers"]
+                else:
+                    out[k] = v
+        return out
 
     @property
     def locale(self) -> dict[str, Any]:
-        return self.raw["Locale"]
+        return self.raw.get("Locale", {})
 
     @property
     def modifiers(self) -> dict[str, dict[str, list[str]]]:
