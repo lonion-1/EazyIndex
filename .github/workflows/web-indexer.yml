@@ -123,17 +123,20 @@ jobs:
           echo "[INFO] Isi config/: $(ls -1 config)"
           echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
 
-      - name: Pastikan direktori cache valid
-        run: |
-          [ -f ".cache/webindex" ] && rm -f ".cache/webindex"
-          mkdir -p .cache/webindex
-          
       - name: Pulihkan cache indeks
         uses: actions/cache/restore@v4
         with:
           path: .cache/webindex
-          key: webindex-${{ github.run_id }}
-          restore-keys: webindex-
+          key: webindex-v2-${{ github.run_id }}
+          restore-keys: webindex-v2-
+
+      - name: Pastikan direktori cache valid
+        run: |
+          if [ -e ".cache/webindex" ] && [ ! -d ".cache/webindex" ]; then
+            echo "[WARN] .cache/webindex berupa file, menghapus..."
+            rm -f ".cache/webindex"
+          fi
+          mkdir -p .cache/webindex
 
       - name: Autocomplete Queries Suggest
         env:
@@ -185,7 +188,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .cache/webindex
-          key: webindex-${{ github.run_id }}
+          key: webindex-v2-${{ github.run_id }}
 
       - name: Simpan kandidat ke GitHub
         if: ${{ !inputs.dry_run }}
