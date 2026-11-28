@@ -1,5 +1,5 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Universal Multi-Category Matcher:
 Menggabungkan aturan dari IndexerConfig (categories/*.toml) + config/domain_rules.toml
 agar semua kategori aktif terdeteksi sejak gerbang masuk.
