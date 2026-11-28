@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Contrastive 4-Pillar Gatekeeper (Legal vs. Illegal):
 - Menimbang Bukti Legal (RS, toko, berita, kampus, platform resmi) vs Bukti Ilegal across 4 pilar.
 - Mendukung Adaptive +1 Sample Page Probe saat halaman depan disamarkan atau meragukan.
