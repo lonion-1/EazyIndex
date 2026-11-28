@@ -1,3 +1,5 @@
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import json
