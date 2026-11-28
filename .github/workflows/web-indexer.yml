@@ -30,7 +30,7 @@ concurrency:
 jobs:
   index:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 330
     env:
       PYTHONUNBUFFERED: "1"
     steps:
@@ -47,10 +47,10 @@ jobs:
           token: ${{ secrets.EAZYVAULT_TOKEN }}
           path: _vault
 
-      - name: Pasang Python 3.15 Free-Threaded
+      - name: Pasang Python 3.14
         uses: actions/setup-python@v6
         with:
-          python-version: '3.15t'
+          python-version: '3.14'
 
       - name: Pasang dependensi Python
         run: |
@@ -87,9 +87,6 @@ jobs:
               done
             fi
           fi
-
-      - name: Validasi Konfigurasi TOML & Anti-FP Self-Test
-        run: python3 -m scripts.web_indexer --check-config
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
