@@ -10,6 +10,7 @@ from typing import Any
 try:
     from ..text_utils import norm_space
 except ImportError:
+
     def norm_space(s: str) -> str:
         return " ".join(s.split())
 
@@ -61,9 +62,7 @@ def build_probe_query(
     r = random.random()
     bare_p = float(probe_cfg.get("bare_prob", 0.45))
     raw_year_p = float(probe_cfg.get("year_prob", 0.25))
-    year_cutoff = (
-        raw_year_p if raw_year_p > bare_p else min(0.95, bare_p + raw_year_p)
-    )
+    year_cutoff = raw_year_p if raw_year_p > bare_p else min(0.95, bare_p + raw_year_p)
 
     if r < bare_p:
         return seed
