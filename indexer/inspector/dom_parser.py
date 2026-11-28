@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Whole-Page 5-Zone DOM Parser:
 Membedah HTML menjadi 5 zona terpisah (Head/JSON-LD, Nav, Main, Outbound/Ads, Footer)
 sehingga situs ilegal yang menyamarkan <header>/<title> tetap terdeteksi dari badan, navigasi, form, & footer.
