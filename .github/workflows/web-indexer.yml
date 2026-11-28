@@ -72,7 +72,6 @@ jobs:
         run: |
           mkdir -p config config/categories
 
-          # 1. Salin template bawaan repo WhaleScout (folder contoh atau file *.example.toml)
           for tpl_dir in config.example config_example example_config examples templates _config; do
             if [ -d "$tpl_dir" ]; then
               cp -rn "$tpl_dir"/* config/ 2>/dev/null || cp -r "$tpl_dir"/* config/
@@ -85,7 +84,6 @@ jobs:
             [ -f "config/$target_name" ] || cp -f "$ex" "config/$target_name"
           done
 
-          # 2. Salin konfigurasi privat dari EazyVault (cek root _vault maupun _vault/config)
           for vdir in "_vault" "_vault/config" "_vault/_config"; do
             [ -d "$vdir" ] || continue
             if [ -d "$vdir/categories" ]; then
@@ -95,11 +93,11 @@ jobs:
               [ -e "$f" ] || continue
               base="$(basename "$f")"
               case "$base" in
-                indexer.toml|legal_profiles.toml|engines.toml|auto_suggest.toml|auto_learned.toml)
-                  cp -f "$f" "config/$base"
+                film.toml|porn.toml|comic.toml|anime.toml|judol.toml|scam.toml|warez.toml|sport.toml|pinjol.toml|phishing.toml|forum.toml)
+                  cp -f "$f" "config/categories/$base"
                   ;;
                 *)
-                  cp -f "$f" "config/categories/$base"
+                  cp -f "$f" "config/$base"
                   ;;
               esac
             done
@@ -107,21 +105,19 @@ jobs:
 
           rm -rf _vault
 
-          # 3. Fallback: cari indexer*.toml di seluruh repo jika config/indexer.toml belum ada
           if [ ! -f "config/indexer.toml" ]; then
             FOUND_INDEXER=$(find . -maxdepth 3 -name "indexer*.toml" | head -n 1)
             if [ -n "$FOUND_INDEXER" ]; then
               cp -f "$FOUND_INDEXER" config/indexer.toml
-              echo "[INFO] Menyalin $FOUND_INDEXER -> config/indexer.toml"
             else
-              echo "[ERROR] config/indexer.toml tidak ditemukan! Daftar file .toml yang ada:"
-              find . -maxdepth 3 -name "*.toml"
+              echo "[ERROR] config/indexer.toml tidak ditemukan!"
               exit 1
             fi
           fi
 
           echo "[INFO] Isi config/: $(ls -1 config)"
           echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
+
 
       - name: Pulihkan cache indeks
         uses: actions/cache/restore@v4
@@ -162,17 +158,8 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           BUDGET_MINS="${MINS:-120}"
-          ARGS=(--budget "$(( BUDGET_MINS * 60 ))")
+          ARGS=(--budget "$(( BUDGET_MINS * 60 ))" --skip-suggest)
 
-          shopt -s nullglob
-          TOML_FILES=(config/categories/*.toml)
-          if [ -f "config/auto_learned.toml" ]; then
-            TOML_FILES+=("config/auto_learned.toml")
-          fi
-
-          if [ ${#TOML_FILES[@]} -gt 0 ]; then
-            ARGS+=(--queries "${TOML_FILES[@]}")
-          fi
           if [ -n "$CATS" ]; then
             ARGS+=(--cats "$CATS")
           fi
@@ -182,7 +169,7 @@ jobs:
 
           echo "[START] Menjalankan scripts.web_indexer (budget: ${BUDGET_MINS}m)..."
           python3 -u -m scripts.web_indexer "${ARGS[@]}"
-
+          
       - name: Simpan cache indeks
         if: always() && !inputs.dry_run
         uses: actions/cache/save@v4
