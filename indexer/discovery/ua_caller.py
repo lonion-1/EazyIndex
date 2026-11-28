@@ -1,5 +1,5 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Pengelola rotasi User-Agent (desktop/mobile) & profil Accept-Language dari satu hulu engines.toml."""
 
 import random
