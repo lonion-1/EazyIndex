@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Manajemen state JSONL append-only, cache veto entitas legal, & ekspor kandidat kaya ke Radar (Tier 2)."""
 
 from __future__ import annotations
