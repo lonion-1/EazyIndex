@@ -57,7 +57,7 @@ jobs:
 
       - name: Siapkan Konfigurasi dari EazyVault
         run: |
-          mkdir -p config/*.toml
+          mkdir -p config config/categories
           if [ -d "config.example" ]; then
             cp -rn config.example/* config/ 2>/dev/null || cp -r config.example/* config/
           fi
@@ -71,12 +71,18 @@ jobs:
 
           if [ -n "$VAULT_CFG" ]; then
             echo "[INFO] Memuat konfigurasi dari $VAULT_CFG"
-            cp -rf "$VAULT_CFG"/* config/
+            # Salin sub-folder jika di Vault sudah terstruktur (mis. config/categories/)
+            if [ -d "$VAULT_CFG/categories" ]; then
+              cp -rf "$VAULT_CFG/categories/"*.toml config/categories/ 2>/dev/null || true
+            fi
+
+            # Pisahkan TOML utama vs TOML kategori dari root Vault/config/
             for f in "$VAULT_CFG"/*.toml; do
               [ -e "$f" ] || continue
               base="$(basename "$f")"
               case "$base" in
                 indexer.toml|legal_profiles.toml|engines.toml|auto_suggest.toml|auto_learned.toml)
+                  cp -f "$f" "config/$base"
                   ;;
                 *)
                   cp -f "$f" "config/categories/$base"
@@ -87,8 +93,9 @@ jobs:
             echo "[WARN] Folder _vault/config tidak ditemukan, memakai config.example/"
           fi
 
-          # Bersihkan _vault segera setelah semua TOML tersalin rapi ke config/
           rm -rf _vault
+          echo "[INFO] Isi config/: $(ls -1 config)"
+          echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
@@ -104,10 +111,16 @@ jobs:
         run: |
           ARGS=()
           shopt -s nullglob
-          TOML_FILES=(config/auto_suggest.toml)
-          if [ ${#TOML_FILES[@]} -gt 0 ]; then
-            ARGS+=(--queries "${TOML_FILES[@]}")
+
+          if [ -f "config/auto_suggest.toml" ]; then
+            ARGS+=(--queries "config/auto_suggest.toml")
+          else
+            CAT_TOMLS=(config/categories/*.toml)
+            if [ ${#CAT_TOMLS[@]} -gt 0 ]; then
+              ARGS+=(--queries "${CAT_TOMLS[@]}")
+            fi
           fi
+
           if [ -n "$CATS" ]; then
             ARGS+=(--cats "$CATS")
           fi
@@ -128,7 +141,11 @@ jobs:
           ARGS=(--budget "$(( BUDGET_MINS * 60 ))")
 
           shopt -s nullglob
-          TOML_FILES=(config/* config/*.toml)
+          TOML_FILES=(config/categories/*.toml)
+          if [ -f "config/auto_learned.toml" ]; then
+            TOML_FILES+=("config/auto_learned.toml")
+          fi
+
           if [ ${#TOML_FILES[@]} -gt 0 ]; then
             ARGS+=(--queries "${TOML_FILES[@]}")
           fi
@@ -152,6 +169,11 @@ jobs:
       - name: Simpan kandidat ke GitHub
         if: inputs.dry_run != true
         run: |
+          if [ ! -d "Candidates" ]; then
+            echo "[INFO] Folder Candidates tidak ditemukan, tidak ada yang di-commit."
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
