@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Automated Whole-Page Regression & Anti-FP Self-Test untuk --check-config.
 Menguji:
 1. Jebakan False Positive halaman utuh (RSUD, Klinik, Toko Permen/Retail, Portal Berita Dewan Pers,
