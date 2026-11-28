@@ -120,17 +120,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           CATS: ${{ inputs.cats }}
         run: |
-          ARGS=()
-          shopt -s nullglob
-
-          if [ -f "config/auto_suggest.toml" ]; then
-            ARGS+=(--queries "config/auto_suggest.toml")
-          else
-            CAT_TOMLS=(config/categories/*.toml)
-            if [ ${#CAT_TOMLS[@]} -gt 0 ]; then
-              ARGS+=(--queries "${CAT_TOMLS[@]}")
-            fi
-          fi
+          ARGS=(--config-dir config)
 
           if [ -n "$CATS" ]; then
             ARGS+=(--cats "$CATS")
