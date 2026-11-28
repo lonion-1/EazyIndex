@@ -139,7 +139,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           CATS: ${{ inputs.cats }}
         run: |
-          ARGS=(--config-dir config)
+          ARGS=(--config-dir config --max-req 180)
 
           if [ -n "$CATS" ]; then
             ARGS+=(--cats "$CATS")
