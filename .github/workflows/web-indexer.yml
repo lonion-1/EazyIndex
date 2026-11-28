@@ -57,7 +57,7 @@ jobs:
 
       - name: Siapkan Konfigurasi dari EazyVault
         run: |
-          mkdir -p config/categories
+          mkdir -p config/*.toml
           if [ -d "config.example" ]; then
             cp -rn config.example/* config/ 2>/dev/null || cp -r config.example/* config/
           fi
