@@ -38,9 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Ambil konfigurasi privat dari EazyVault
-        if: env.EAZYVAULT_TOKEN != ''
-        env:
-          EAZYVAULT_TOKEN: ${{ secrets.EAZYVAULT_TOKEN }}
+        if: ${{ secrets.EAZYVAULT_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
           repository: lonion-1/EazyVault
@@ -56,12 +54,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-    
+
       - name: Siapkan Konfigurasi dari EazyVault
         run: |
-          mkdir -p config
+          mkdir -p config/categories
           if [ -d "config.example" ]; then
-            cp -r config.example/* config/
+            cp -rn config.example/* config/ 2>/dev/null || cp -r config.example/* config/
           fi
 
           VAULT_CFG=""
@@ -72,21 +70,25 @@ jobs:
           fi
 
           if [ -n "$VAULT_CFG" ]; then
-            cp -r "$VAULT_CFG"/* config/
-            if [ -d "config/categories" ]; then
-              for f in "$VAULT_CFG"/*.toml; do
-                [ -e "$f" ] || continue
-                base="$(basename "$f")"
-                case "$base" in
-                  indexer.toml|legal_profiles.toml|engines.toml|auto_suggest.toml|auto_learned.toml)
-                    ;;
-                  *)
-                    cp "$f" "config/categories/$base"
-                    ;;
-                esac
-              done
-            fi
+            echo "[INFO] Memuat konfigurasi dari $VAULT_CFG"
+            cp -rf "$VAULT_CFG"/* config/
+            for f in "$VAULT_CFG"/*.toml; do
+              [ -e "$f" ] || continue
+              base="$(basename "$f")"
+              case "$base" in
+                indexer.toml|legal_profiles.toml|engines.toml|auto_suggest.toml|auto_learned.toml)
+                  ;;
+                *)
+                  cp -f "$f" "config/categories/$base"
+                  ;;
+              esac
+            done
+          else
+            echo "[WARN] Folder _vault/config tidak ditemukan, memakai config.example/"
           fi
+
+          # Bersihkan _vault segera setelah semua TOML tersalin rapi ke config/
+          rm -rf _vault
 
       - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
         uses: actions/cache/restore@v4
@@ -96,30 +98,49 @@ jobs:
           restore-keys: webindex-
 
       - name: Autocomplete Queries Suggest
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          CATS: ${{ inputs.cats }}
         run: |
-          if [ -f "_vault/config/*.toml" ]; then
-            ARGS="$ARGS --queries _vault/config/*toml"
+          ARGS=()
+          shopt -s nullglob
+          TOML_FILES=(config/*.toml)
+          if [ ${#TOML_FILES[@]} -gt 0 ]; then
+            ARGS+=(--queries "${TOML_FILES[@]}")
           fi
-          ARGS=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
-          python3 -m indexer.harvest.auto_seed $ARGS || true
+          if [ -n "$CATS" ]; then
+            ARGS+=(--cats "$CATS")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
 
-          python3 -u -m scripts.web_indexer $ARGS
-          rm -rf _vault/config
-          
+          echo "[START] Menjalankan indexer.harvest.auto_seed..."
+          python3 -u -m indexer.harvest.auto_seed "${ARGS[@]}"
+
       - name: Jalankan Front-Gate Web Indexer
+        env:
+          MINS: ${{ inputs.minutes }}
+          CATS: ${{ inputs.cats }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          MINS="${{ inputs.minutes || '120' }}"
-          ARGS="--budget $(( MINS * 60 ))"
+          BUDGET_MINS="${MINS:-120}"
+          ARGS=(--budget "$(( BUDGET_MINS * 60 ))")
 
-          if [ -f "_vault/config/*.toml" ]; then
-            ARGS="$ARGS --queries _vault/config/*toml"
+          shopt -s nullglob
+          TOML_FILES=(config/*.toml)
+          if [ ${#TOML_FILES[@]} -gt 0 ]; then
+            ARGS+=(--queries "${TOML_FILES[@]}")
           fi
-          if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
-          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "$CATS" ]; then
+            ARGS+=(--cats "$CATS")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
 
-          python3 -u -m scripts.web_indexer $ARGS
-          rm -rf _vault/config
+          echo "[START] Menjalankan scripts.web_indexer (budget: ${BUDGET_MINS}m)..."
+          python3 -u -m scripts.web_indexer "${ARGS[@]}"
 
       - name: Simpan cache indeks
         if: always() && inputs.dry_run != true
