@@ -71,24 +71,27 @@ jobs:
       - name: Siapkan Konfigurasi dari EazyVault
         run: |
           mkdir -p config config/categories
-          if [ -d "config.example" ]; then
-            cp -rn config.example/* config/ 2>/dev/null || cp -r config.example/* config/
-          fi
 
-          VAULT_CFG=""
-          if [ -d "_vault/config" ]; then
-            VAULT_CFG="_vault/config"
-          elif [ -d "_vault/_config" ]; then
-            VAULT_CFG="_vault/_config"
-          fi
-
-          if [ -n "$VAULT_CFG" ]; then
-            echo "[INFO] Memuat konfigurasi dari $VAULT_CFG"
-            if [ -d "$VAULT_CFG/categories" ]; then
-              cp -rf "$VAULT_CFG/categories/"*.toml config/categories/ 2>/dev/null || true
+          # 1. Salin template bawaan repo WhaleScout (folder contoh atau file *.example.toml)
+          for tpl_dir in config.example config_example example_config examples templates _config; do
+            if [ -d "$tpl_dir" ]; then
+              cp -rn "$tpl_dir"/* config/ 2>/dev/null || cp -r "$tpl_dir"/* config/
             fi
+          done
 
-            for f in "$VAULT_CFG"/*.toml; do
+          for ex in config/*.example.toml *.example.toml; do
+            [ -e "$ex" ] || continue
+            target_name="$(basename "$ex" .example.toml).toml"
+            [ -f "config/$target_name" ] || cp -f "$ex" "config/$target_name"
+          done
+
+          # 2. Salin konfigurasi privat dari EazyVault (cek root _vault maupun _vault/config)
+          for vdir in "_vault" "_vault/config" "_vault/_config"; do
+            [ -d "$vdir" ] || continue
+            if [ -d "$vdir/categories" ]; then
+              cp -rf "$vdir/categories/"*.toml config/categories/ 2>/dev/null || true
+            fi
+            for f in "$vdir"/*.toml; do
               [ -e "$f" ] || continue
               base="$(basename "$f")"
               case "$base" in
@@ -100,11 +103,23 @@ jobs:
                   ;;
               esac
             done
-          else
-            echo "[WARN] Folder _vault/config tidak ditemukan, memakai config.example/"
-          fi
+          done
 
           rm -rf _vault
+
+          # 3. Fallback: cari indexer*.toml di seluruh repo jika config/indexer.toml belum ada
+          if [ ! -f "config/indexer.toml" ]; then
+            FOUND_INDEXER=$(find . -maxdepth 3 -name "indexer*.toml" | head -n 1)
+            if [ -n "$FOUND_INDEXER" ]; then
+              cp -f "$FOUND_INDEXER" config/indexer.toml
+              echo "[INFO] Menyalin $FOUND_INDEXER -> config/indexer.toml"
+            else
+              echo "[ERROR] config/indexer.toml tidak ditemukan! Daftar file .toml yang ada:"
+              find . -maxdepth 3 -name "*.toml"
+              exit 1
+            fi
+          fi
+
           echo "[INFO] Isi config/: $(ls -1 config)"
           echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
 
