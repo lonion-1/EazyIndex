@@ -37,8 +37,19 @@ jobs:
       - name: Ambil isi repo
         uses: actions/checkout@v4
 
+      - name: Cek ketersediaan token EazyVault
+        id: vault_check
+        env:
+          VAULT_TOKEN: ${{ secrets.EAZYVAULT_TOKEN }}
+        run: |
+          if [ -n "$VAULT_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Ambil konfigurasi privat dari EazyVault
-        if: ${{ secrets.EAZYVAULT_TOKEN != '' }}
+        if: steps.vault_check.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           repository: lonion-1/EazyVault
@@ -53,7 +64,9 @@ jobs:
       - name: Pasang dependensi Python
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
 
       - name: Siapkan Konfigurasi dari EazyVault
         run: |
@@ -71,12 +84,10 @@ jobs:
 
           if [ -n "$VAULT_CFG" ]; then
             echo "[INFO] Memuat konfigurasi dari $VAULT_CFG"
-            # Salin sub-folder jika di Vault sudah terstruktur (mis. config/categories/)
             if [ -d "$VAULT_CFG/categories" ]; then
               cp -rf "$VAULT_CFG/categories/"*.toml config/categories/ 2>/dev/null || true
             fi
 
-            # Pisahkan TOML utama vs TOML kategori dari root Vault/config/
             for f in "$VAULT_CFG"/*.toml; do
               [ -e "$f" ] || continue
               base="$(basename "$f")"
@@ -97,7 +108,7 @@ jobs:
           echo "[INFO] Isi config/: $(ls -1 config)"
           echo "[INFO] Isi config/categories/: $(ls -1 config/categories)"
 
-      - name: Pulihkan cache indeks (frontier, seen, vetoed_benign, feed query, searx)
+      - name: Pulihkan cache indeks
         uses: actions/cache/restore@v4
         with:
           path: .cache/webindex
@@ -160,14 +171,14 @@ jobs:
           python3 -u -m scripts.web_indexer "${ARGS[@]}"
 
       - name: Simpan cache indeks
-        if: always() && inputs.dry_run != true
+        if: always() && !inputs.dry_run
         uses: actions/cache/save@v4
         with:
           path: .cache/webindex
           key: webindex-${{ github.run_id }}
 
       - name: Simpan kandidat ke GitHub
-        if: inputs.dry_run != true
+        if: ${{ !inputs.dry_run }}
         run: |
           if [ ! -d "Candidates" ]; then
             echo "[INFO] Folder Candidates tidak ditemukan, tidak ada yang di-commit."
