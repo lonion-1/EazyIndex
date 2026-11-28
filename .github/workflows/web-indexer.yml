@@ -104,7 +104,7 @@ jobs:
         run: |
           ARGS=()
           shopt -s nullglob
-          TOML_FILES=(config/*.toml)
+          TOML_FILES=(config/auto_suggest.toml)
           if [ ${#TOML_FILES[@]} -gt 0 ]; then
             ARGS+=(--queries "${TOML_FILES[@]}")
           fi
@@ -128,7 +128,7 @@ jobs:
           ARGS=(--budget "$(( BUDGET_MINS * 60 ))")
 
           shopt -s nullglob
-          TOML_FILES=(config/*.toml)
+          TOML_FILES=(config/* config/*.toml)
           if [ ${#TOML_FILES[@]} -gt 0 ]; then
             ARGS+=(--queries "${TOML_FILES[@]}")
           fi
