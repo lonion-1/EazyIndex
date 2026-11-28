@@ -1,6 +1,6 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
 # SPDX-License-Identifier: MIT
-"""Pintu masuk Web Indexer. Logika ada di indexer/."""
+"""Pintu masuk Web Indexer./."""
 
 import os
 import sys
