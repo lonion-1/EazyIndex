@@ -73,7 +73,12 @@ def harvest_autocomplete(
     detector = LocaleDetector.from_config(hcfg.locale)
     providers = load_providers(hcfg)
     client = HttpClient(hcfg.http)
-    filter_engine = FilterEngine.from_config(hcfg.filter)
+    filter_cfg = (
+        getattr(hcfg, "filter", None)
+        or getattr(hcfg, "filters", None)
+        or (getattr(hcfg, "raw", {}) or {}).get("Filter", {})
+    )
+    filter_engine = FilterEngine.from_config(filter_cfg)
     brand_tokens_by_cat = {
         c: list(cfg.categories[c].queries_cfg.get("brands", [])) for c in cfg.categories
     }
@@ -209,11 +214,18 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_indexer_config(args.config_dir)
     cats = {c.strip().lower() for c in args.cats.split(",") if c.strip()} or None
 
+    hcfg = None
+    if args.config_dir is not None:
+        custom_suggest = args.config_dir / "auto_suggest.toml"
+        if custom_suggest.is_file():
+            hcfg = load_auto_suggest(custom_suggest)
+
     res = harvest_autocomplete(
         cfg,
         max_req=max(1, args.max_req),
         cats=cats,
         dry=args.dry_run,
+        hcfg=hcfg,
     )
     print(
         f"[AUTO-SEED] selesai: requests={res['requests']}, "
