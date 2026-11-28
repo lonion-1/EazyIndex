@@ -71,7 +71,9 @@ class HarvestConfig:
     def routing_default(self) -> dict[str, float]:
         default_blk = self.raw.get("Routing", {}).get("Default", {})
         if isinstance(default_blk, dict):
-            if "providers" in default_blk and isinstance(default_blk["providers"], dict):
+            if "providers" in default_blk and isinstance(
+                default_blk["providers"], dict
+            ):
                 return default_blk["providers"]
             return default_blk
         return {}
