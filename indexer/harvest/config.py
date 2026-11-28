@@ -94,6 +94,14 @@ class HarvestConfig:
     def harvest(self) -> dict[str, Any]:
         return self.raw.get("Harvest", {})
 
+    @property
+    def filter(self) -> dict[str, Any]:
+        return self.raw.get("Filter", self.raw.get("filter", {}))
+
+    @property
+    def filters(self) -> dict[str, Any]:
+        return self.filter
+
     def resolve_year(self) -> str:
         src = self.raw.get("Meta", {}).get("year_src", "utc")
         if isinstance(src, int):
