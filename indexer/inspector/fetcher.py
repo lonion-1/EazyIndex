@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Lightweight HTTP Fetcher berbasis curl_cffi (TLS/HTTP2 impersonate) dengan:
 - SSRF guard per-hop (scheme, IP privat/reserved, IPv4-mapped IPv6, redirect loop).
 - DNS pinning via CURLOPT_RESOLVE (cegah TOCTOU DNS rebinding).
