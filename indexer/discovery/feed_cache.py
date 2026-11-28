@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EazyWhale
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
+# SPDX-License-Identifier: MIT
 """Dynamic Self-Pruning Query Feed Cache (.cache/webindex/feed.jsonl).
 Terhubung penuh dengan auto_seed, queries, dan main indexer loop:
 - Query yang menghasilkan kandidat lolos gatekeeper -> hits naik & prioritas meningkat.
