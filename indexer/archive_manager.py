@@ -1,5 +1,5 @@
 # Copyright (c) 2026 EazyWhale (https://github.com/lonion-1)
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Archive Manager (Gudang Beku & Zombie Resurrector):
 - Simpan & baca domain dalam format .jsonl maupun Archive/<cat>.jsonl.gz (deterministik, mtime=0).
 - Gabungkan riwayat skor/sumber tanpa menimpa metadata lama & bersihkan domain allowlist.
