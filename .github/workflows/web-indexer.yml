@@ -97,23 +97,29 @@ jobs:
 
       - name: Autocomplete Queries Suggest
         run: |
+          if [ -f "_vault/config/*.toml" ]; then
+            ARGS="$ARGS --queries _vault/config/*toml"
+          fi
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
           python3 -m indexer.harvest.auto_seed $ARGS || true
+
+          python3 -u -m scripts.web_indexer $ARGS
+          rm -rf _vault/config
           
       - name: Jalankan Front-Gate Web Indexer
         run: |
           MINS="${{ inputs.minutes || '120' }}"
           ARGS="--budget $(( MINS * 60 ))"
 
-          if [ -f "_vault/queries/proven_queries.jsonl" ]; then
-            ARGS="$ARGS --queries _vault/queries/proven_queries.jsonl"
+          if [ -f "_vault/config/*.toml" ]; then
+            ARGS="$ARGS --queries _vault/config/*toml"
           fi
           if [ -n "${{ inputs.cats }}" ]; then ARGS="$ARGS --cats ${{ inputs.cats }}"; fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
 
           python3 -u -m scripts.web_indexer $ARGS
-          rm -rf _vault config
+          rm -rf _vault/config
 
       - name: Simpan cache indeks
         if: always() && inputs.dry_run != true
